@@ -45,9 +45,28 @@ namespace HaldorBounties
         private ZNetView _nview;
         private VisEquipment _visEquip;
         private Humanoid _humanoid;
+        private bool _initialized;
+        private int _cachedGender = -1;
 
         private void Awake()
         {
+            // Cache ForceGender immediately — subsequent spawns may overwrite it before Start()
+            if (ForceGender > 0)
+                _cachedGender = ForceGender;
+
+            TryInitialize();
+        }
+
+        private void Start()
+        {
+            if (!_initialized)
+                TryInitialize();
+        }
+
+        private void TryInitialize()
+        {
+            if (_initialized) return;
+
             _nview = GetComponent<ZNetView>();
             _visEquip = GetComponent<VisEquipment>();
             _humanoid = GetComponent<Humanoid>();
@@ -59,7 +78,12 @@ namespace HaldorBounties
             bool firstSpawn = !_nview.GetZDO().GetBool(EquippedHash, false);
 
             if (firstSpawn)
+            {
+                // Restore cached gender if ForceGender was consumed by another NPC's Awake
+                if (_cachedGender >= 0 && ForceGender == 0)
+                    ForceGender = _cachedGender;
                 SetupVisuals();
+            }
 
             SetupEquipment(tier, firstSpawn);
 
@@ -72,6 +96,8 @@ namespace HaldorBounties
 
             if (firstSpawn)
                 _nview.GetZDO().Set(EquippedHash, true);
+
+            _initialized = true;
         }
 
         private void SetupVisuals()

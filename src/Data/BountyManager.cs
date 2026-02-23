@@ -45,7 +45,10 @@ namespace HaldorBounties
             "Thorvald", "Styrbjorn", "Ketil", "Hakon", "Erling",
             "Folkvar", "Geir", "Vidar", "Grimolf", "Thorgrim",
             "Rolf", "Orm", "Asmund", "Einar", "Hjalmar",
-            "Dag", "Bodvar", "Ulf", "Bjorn", "Erik"
+            "Dag", "Bodvar", "Ulf", "Bjorn", "Erik",
+            "Leif", "Skallagrim", "Hrothgar", "Bragi", "Kolbein",
+            "Trygve", "Arnbjorn", "Gudmund", "Fenrir", "Alfgeir",
+            "Skuli", "Hrolf", "Guthorm", "Snorri", "Floki"
         };
 
         private static readonly string[] FemaleNames =
@@ -53,7 +56,9 @@ namespace HaldorBounties
             "Valdis", "Freya", "Brynhild", "Solveig", "Ingrid",
             "Ragnhild", "Hervor", "Svanhild", "Jorunn", "Alva",
             "Astrid", "Sigrid", "Thyra", "Helga", "Sif",
-            "Gudrun", "Ylva", "Thora", "Hilde", "Embla"
+            "Gudrun", "Ylva", "Thora", "Hilde", "Embla",
+            "Vigdis", "Eira", "Gunnhild", "Dagny", "Aslaug",
+            "Alfhild", "Ranveig", "Sigrun", "Torhild", "Hallveig"
         };
 
         // Build O(1) lookup table from BountyConfig (must be called after BountyConfig.Initialize)
@@ -351,7 +356,16 @@ namespace HaldorBounties
             catch { }
 
             if (entry != null && entry.SpawnLevel > 0)
-                SpawnBountyCreature(player, entry, bossName);
+            {
+                try
+                {
+                    SpawnBountyCreature(player, entry, bossName);
+                }
+                catch (Exception ex)
+                {
+                    HaldorBounties.Log.LogError($"[BountyManager] SpawnBountyCreature failed for {bountyId}: {ex}");
+                }
+            }
 
             if (entry != null) AddBountyStatusEffect(player, entry);
 
