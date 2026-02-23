@@ -458,6 +458,18 @@ namespace HaldorBounties
             tintImg.color = new Color(0f, 0f, 0f, 0.75f);
             tintImg.raycastTarget = false;
 
+            // Highlight on hover/select — matches tab button highlight style
+            btn.targetGraphic = tintImg;
+            btn.transition = Selectable.Transition.ColorTint;
+            var colors = btn.colors;
+            colors.normalColor = new Color(0f, 0f, 0f, 0.75f);
+            colors.highlightedColor = new Color(0.35f, 0.25f, 0.08f, 0.55f);
+            colors.pressedColor = new Color(0.45f, 0.35f, 0.12f, 0.4f);
+            colors.selectedColor = new Color(0.35f, 0.25f, 0.08f, 0.55f);
+            colors.disabledColor = new Color(0f, 0f, 0f, 0.85f);
+            colors.fadeDuration = 0.1f;
+            btn.colors = colors;
+
             // Bottom-anchored, full-width — identical to TraderUI action button
             var rt = go.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0f, 0f);
