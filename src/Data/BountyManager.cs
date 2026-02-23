@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
@@ -13,6 +14,7 @@ namespace HaldorBounties
         private const string StateKeyPrefix    = "HaldorBounty_State_";
         private const string ProgressKeyPrefix = "HaldorBounty_Progress_";
         private const string BossNameKeyPrefix = "HaldorBounty_BossName_";
+        private const string SpawnPosKeyPrefix = "HaldorBounty_SpawnPos_";
         private const string BankDataKey       = "HaldorBank_Balance";
         private const string LastDayKey        = "HaldorBounty_LastDay";
 
@@ -29,23 +31,29 @@ namespace HaldorBounties
         private readonly Dictionary<string, Minimap.PinData> _bountyPins     = new Dictionary<string, Minimap.PinData>();
         private readonly Dictionary<string, Character>       _bountyCreatures = new Dictionary<string, Character>();
 
-        // H-1: Active bounty ID set for fast filtering in IncrementKill/IncrementGather
+        // H-1: Active bounty ID set for fast filtering in IncrementKill
         private readonly HashSet<string> _activeBountyIds = new HashSet<string>();
         private bool _activeBountyIdsLoaded;
 
         // O(1) entry lookup by ID (built once from BountyConfig at Initialize time)
         private readonly Dictionary<string, BountyEntry> _bountyLookup;
 
-        private static readonly string[] BossNames =
+        private static readonly string[] MaleNames =
         {
-            "Grendel", "Thundermaw", "Ironhide", "Dreadfang", "Shadowbane",
-            "Bonecrusher", "Frostbite", "Ashwalker", "Bloodreaver", "Stormcaller",
-            "Nightterror", "Grimjaw", "Doombringer", "Soulrender", "Hellfire",
-            "Deathgrip", "Voidfang", "Skullsplitter", "Ravenmaw", "Warbringer",
-            "Emberclaw", "Steelhorn", "Rotfang", "Icevein", "Plaguebringer",
-            "Titan", "Colossus", "Ravager", "Overlord", "Behemoth",
-            "Gorefist", "Wraithbane", "Cinderborn", "Venomstrike", "Darkhorn",
-            "Thunderfoot", "Ironjaw", "Blazeclaw", "Frostfang", "Doomhowl"
+            "Ragnar", "Sigurd", "Gunnar", "Halvard", "Agnar",
+            "Torstein", "Ottar", "Ivar", "Bjarke", "Torbjorn",
+            "Thorvald", "Styrbjorn", "Ketil", "Hakon", "Erling",
+            "Folkvar", "Geir", "Vidar", "Grimolf", "Thorgrim",
+            "Rolf", "Orm", "Asmund", "Einar", "Hjalmar",
+            "Dag", "Bodvar", "Ulf", "Bjorn", "Erik"
+        };
+
+        private static readonly string[] FemaleNames =
+        {
+            "Valdis", "Freya", "Brynhild", "Solveig", "Ingrid",
+            "Ragnhild", "Hervor", "Svanhild", "Jorunn", "Alva",
+            "Astrid", "Sigrid", "Thyra", "Helga", "Sif",
+            "Gudrun", "Ylva", "Thora", "Hilde", "Embla"
         };
 
         // Build O(1) lookup table from BountyConfig (must be called after BountyConfig.Initialize)
@@ -148,6 +156,7 @@ namespace HaldorBounties
                 string bountyId = key.Substring(StateKeyPrefix.Length);
                 player.m_customData.Remove(ProgressKeyPrefix + bountyId);
                 player.m_customData.Remove(BossNameKeyPrefix + bountyId);
+                player.m_customData.Remove(SpawnPosKeyPrefix + bountyId);
             }
 
             _lastDay = currentDay;
@@ -168,15 +177,15 @@ namespace HaldorBounties
             // M-1: Cast to long before multiplying to avoid int overflow for large day values
             var rng = new System.Random((int)((long)day * 31337 % int.MaxValue));
 
-            var pool    = BountyConfig.Bounties.Where(b => IsBossGateUnlocked(b)).ToList();
-            var gather  = pool.Where(b => b.Type == "Gather").ToList();
-            var kill    = pool.Where(b => b.Type == "Kill" && !IsMiniboss(b)).ToList();
+            var pool     = BountyConfig.Bounties.Where(b => IsBossGateUnlocked(b)).ToList();
+            var kill     = pool.Where(b => b.Type == "Kill" && !IsMiniboss(b) && !IsRaid(b)).ToList();
             var miniboss = pool.Where(b => IsMiniboss(b)).ToList();
+            var raid     = pool.Where(b => IsRaid(b)).ToList();
 
             var daily = new List<BountyEntry>();
-            daily.AddRange(PickRandom(gather,   2, rng));
             daily.AddRange(PickRandom(kill,     2, rng));
-            daily.AddRange(PickRandom(miniboss, 2, rng));
+            daily.AddRange(PickRandom(miniboss, 1, rng));
+            daily.AddRange(PickRandom(raid,     1, rng));
             return daily;
         }
 
@@ -187,6 +196,7 @@ namespace HaldorBounties
         }
 
         private static bool IsMiniboss(BountyEntry entry) => entry.Tier == "Miniboss" || entry.Tier == "Special";
+        private static bool IsRaid(BountyEntry entry) => entry.Tier == "Raid";
 
         private static bool IsBossGateUnlocked(BountyEntry entry)
         {
@@ -220,9 +230,12 @@ namespace HaldorBounties
         {
             var player = Player.m_localPlayer;
             if (player == null) return 0;
-            if (player.m_customData.TryGetValue(ProgressKeyPrefix + bountyId, out string val) && int.TryParse(val, out int progress))
-                return progress;
-            return 0;
+
+            int progress = 0;
+            if (player.m_customData.TryGetValue(ProgressKeyPrefix + bountyId, out string val))
+                int.TryParse(val, out progress);
+
+            return progress;
         }
 
         public bool IsAvailable(string bountyId)
@@ -271,17 +284,31 @@ namespace HaldorBounties
                 if (player.m_customData.TryGetValue(BossNameKeyPrefix + bountyId, out string savedName) && !string.IsNullOrEmpty(savedName))
                     return savedName;
             }
-            return GenerateBossName(bountyId);
+            // Look up gender from config
+            int gender = 0;
+            if (Instance != null && Instance._bountyLookup.TryGetValue(bountyId, out var entry))
+                gender = entry.Gender;
+            return GenerateBossName(bountyId, gender);
         }
 
-        private static string GenerateBossName(string bountyId)
+        private static string GenerateBossName(string bountyId, int gender = 0)
         {
             int hash = StableHash(bountyId);
             int day  = 0;
             if (EnvMan.instance != null && ZNet.instance != null)
                 day = EnvMan.instance.GetDay(ZNet.instance.GetTimeSeconds());
-            int index = ((hash + day * 7) & 0x7FFFFFFF) % BossNames.Length;
-            return BossNames[index];
+
+            string[] pool = gender == 2 ? FemaleNames : gender == 1 ? MaleNames : MaleNames;
+            if (gender == 0) // random gender — pick from combined pool
+            {
+                int combined = ((hash + day * 7) & 0x7FFFFFFF) % (MaleNames.Length + FemaleNames.Length);
+                pool = combined < MaleNames.Length ? MaleNames : FemaleNames;
+                int index = combined < MaleNames.Length ? combined : combined - MaleNames.Length;
+                return pool[index];
+            }
+
+            int idx = ((hash + day * 7) & 0x7FFFFFFF) % pool.Length;
+            return pool[idx];
         }
 
         private static int StableHash(string s)
@@ -316,7 +343,7 @@ namespace HaldorBounties
             _bountyLookup.TryGetValue(bountyId, out var entry);
             if (entry != null && entry.SpawnLevel > 0)
             {
-                bossName = GenerateBossName(bountyId);
+                bossName = GenerateBossName(bountyId, entry.Gender);
                 player.m_customData[BossNameKeyPrefix + bountyId] = bossName;
             }
 
@@ -325,6 +352,8 @@ namespace HaldorBounties
 
             if (entry != null && entry.SpawnLevel > 0)
                 SpawnBountyCreature(player, entry, bossName);
+
+            if (entry != null) AddBountyStatusEffect(player, entry);
 
             HaldorBounties.Log.LogInfo($"[BountyManager] Accepted bounty: {bountyId}");
             return true;
@@ -341,10 +370,13 @@ namespace HaldorBounties
             player.m_customData.Remove(StateKeyPrefix + bountyId);
             player.m_customData.Remove(ProgressKeyPrefix + bountyId);
             player.m_customData.Remove(BossNameKeyPrefix + bountyId);
+            player.m_customData.Remove(SpawnPosKeyPrefix + bountyId);
 
             // H-1: Remove from active set
             _activeBountyIds.Remove(bountyId);
 
+            RemoveBountyStatusEffect(player, bountyId);
+            DespawnBountyCreature(bountyId);
             RemoveBountyPin(bountyId);
             HaldorBounties.Log.LogInfo($"[BountyManager] Abandoned bounty: {bountyId}");
             return true;
@@ -356,33 +388,55 @@ namespace HaldorBounties
         /// </summary>
         private void SpawnBountyCreature(Player player, BountyEntry entry, string bossName)
         {
-            try
+            var prefab = ZNetScene.instance.GetPrefab(entry.Target);
+            if (prefab == null)
             {
-                var prefab = ZNetScene.instance.GetPrefab(entry.Target);
-                if (prefab == null)
-                {
-                    HaldorBounties.Log.LogWarning($"[BountyManager] Prefab not found: {entry.Target}");
-                    return;
-                }
+                HaldorBounties.Log.LogWarning($"[BountyManager] Prefab not found: {entry.Target}");
+                return;
+            }
 
-                int spawnCount    = entry.Amount;
-                Vector3 playerPos = player.transform.position;
-                // C-2: Default to playerPos so pin is never placed at world origin (0,0,0)
-                Vector3 firstSpawnPos = playerPos;
+            if (string.IsNullOrEmpty(bossName))
+                bossName = GetBossName(entry.Id);
 
-                for (int i = 0; i < spawnCount; i++)
+            bool isRaid       = IsRaid(entry);
+            int spawnCount    = isRaid ? entry.Amount : 1;
+            Vector3 playerPos = player.transform.position;
+            Vector3 firstSpawnPos = playerPos;
+            Character firstCharacter = null;
+            int spawned = 0;
+
+            RemoveBountyPin(entry.Id);
+            CleanupStaleCreatures(entry.Id);
+
+            for (int i = 0; i < spawnCount; i++)
+            {
+                try
                 {
-                    Vector3   pos = FindSpawnPosition(playerPos, 700f);
+                    Vector3 pos;
+                    if (isRaid && i > 0)
+                        pos = FindSpawnPosition(firstSpawnPos, 10f);
+                    else
+                        pos = FindSpawnPosition(playerPos, 50f);
                     if (i == 0) firstSpawnPos = pos;
                     Quaternion rot = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
 
+                    NpcSetup.ForceGender = entry.Gender;
                     var go        = UnityEngine.Object.Instantiate(prefab, pos, rot);
                     var character = go.GetComponent<Character>();
                     if (character != null)
                     {
                         character.SetLevel(entry.SpawnLevel);
-                        character.m_name = bossName;
-                        character.m_boss = true;
+                        character.SetHealth(character.GetMaxHealth());
+                        if (isRaid)
+                        {
+                            character.m_name = "Valheim Raider";
+                        }
+                        else
+                        {
+                            character.m_name = bossName;
+                            character.m_boss = true;
+                            character.m_dontHideBossHud = true;
+                        }
                     }
 
                     var nview = go.GetComponent<ZNetView>();
@@ -396,41 +450,45 @@ namespace HaldorBounties
                     }
 
                     if (i == 0 && character != null)
-                        _bountyCreatures[entry.Id] = character;
-                }
+                        firstCharacter = character;
 
-                // M-7: Minimap pin with fallback for older Valheim versions that lack EventArea
-                if (Minimap.instance != null)
+                    spawned++;
+                }
+                catch (Exception ex)
                 {
-                    RemoveBountyPin(entry.Id);
+                    HaldorBounties.Log.LogWarning($"[BountyManager] Failed to spawn creature {i + 1}/{spawnCount}: {ex.Message}");
+                }
+            }
+
+            if (firstCharacter != null)
+                _bountyCreatures[entry.Id] = firstCharacter;
+
+            player.m_customData[SpawnPosKeyPrefix + entry.Id] = string.Format(CultureInfo.InvariantCulture, "{0:F1},{1:F1},{2:F1}", firstSpawnPos.x, firstSpawnPos.y, firstSpawnPos.z);
+
+            if (Minimap.instance != null)
+            {
+                try
+                {
+                    var pin = Minimap.instance.AddPin(firstSpawnPos, Minimap.PinType.EventArea, bossName, false, false);
+                    pin.m_worldSize = 80f;
+                    pin.m_animate   = true;
+                    _bountyPins[entry.Id] = pin;
+                }
+                catch
+                {
                     try
                     {
-                        var pin = Minimap.instance.AddPin(firstSpawnPos, Minimap.PinType.EventArea, bossName, false, false);
-                        pin.m_worldSize = 80f;
-                        pin.m_animate   = true;
+                        var pin = Minimap.instance.AddPin(firstSpawnPos, Minimap.PinType.Boss, bossName, true, false);
                         _bountyPins[entry.Id] = pin;
                     }
-                    catch
-                    {
-                        try
-                        {
-                            // Fallback: Boss pin type is universally available
-                            var pin = Minimap.instance.AddPin(firstSpawnPos, Minimap.PinType.Boss, bossName, true, false);
-                            _bountyPins[entry.Id] = pin;
-                        }
-                        catch { }
-                    }
+                    catch { }
                 }
-
-                MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center,
-                    $"{bossName} the {entry.Title} has appeared in the wild!");
-
-                HaldorBounties.Log.LogInfo($"[BountyManager] Spawned {spawnCount}x {entry.Target} \"{bossName}\" level {entry.SpawnLevel} ~700m from player");
             }
-            catch (Exception ex)
-            {
-                HaldorBounties.Log.LogWarning($"[BountyManager] Failed to spawn creature: {ex.Message}");
-            }
+
+            MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center,
+                $"{bossName} the {entry.Title} has appeared in the wild!");
+
+            HaldorBounties.Log.LogInfo($"[BountyManager] Spawned {spawned}/{spawnCount}x {entry.Target} \"{bossName}\" level {entry.SpawnLevel}");
         }
 
         /// <summary>Called from MinibossHud when a tagged creature's zone reloads.</summary>
@@ -440,14 +498,42 @@ namespace HaldorBounties
             var state = GetState(bountyId);
             if (state != BountyState.Active && state != BountyState.Ready) return;
 
+            // Check if this is a raid bounty — raids show normal enemy names, no boss HUD
+            bool isRaid = false;
+            if (_bountyLookup.TryGetValue(bountyId, out var entry))
+                isRaid = IsRaid(entry);
+
+            string bossName = GetBossName(bountyId);
+            if (isRaid)
+            {
+                creature.m_name = "Valheim Raider";
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(bossName))
+                    creature.m_name = bossName;
+                else
+                    bossName = creature.m_name;
+                creature.m_boss = true;
+                creature.m_dontHideBossHud = true;
+            }
+
             _bountyCreatures[bountyId] = creature;
+
+            // Update stored spawn position so pin tracks creature after zone reload
+            var player = Player.m_localPlayer;
+            if (player != null)
+            {
+                Vector3 cPos = creature.transform.position;
+                player.m_customData[SpawnPosKeyPrefix + bountyId] = string.Format(CultureInfo.InvariantCulture, "{0:F1},{1:F1},{2:F1}", cPos.x, cPos.y, cPos.z);
+            }
 
             if (!_bountyPins.ContainsKey(bountyId) && Minimap.instance != null)
             {
-                string bossName = creature.m_name;
+                string pinName = isRaid ? "Valheim Raiders" : bossName;
                 try
                 {
-                    var pin = Minimap.instance.AddPin(creature.transform.position, Minimap.PinType.EventArea, bossName, false, false);
+                    var pin = Minimap.instance.AddPin(creature.transform.position, Minimap.PinType.EventArea, pinName, false, false);
                     pin.m_worldSize = 80f;
                     pin.m_animate   = true;
                     _bountyPins[bountyId] = pin;
@@ -456,12 +542,12 @@ namespace HaldorBounties
                 {
                     try
                     {
-                        var pin = Minimap.instance.AddPin(creature.transform.position, Minimap.PinType.Boss, bossName, true, false);
+                        var pin = Minimap.instance.AddPin(creature.transform.position, Minimap.PinType.Boss, pinName, true, false);
                         _bountyPins[bountyId] = pin;
                     }
                     catch { }
                 }
-                HaldorBounties.Log.LogInfo($"[BountyManager] Re-registered bounty creature: {bossName} (bounty={bountyId})");
+                HaldorBounties.Log.LogInfo($"[BountyManager] Re-registered bounty creature: {pinName} (bounty={bountyId})");
             }
         }
 
@@ -474,6 +560,60 @@ namespace HaldorBounties
             int    currentDay = (int)(now / dayLen);
             double nextDayStart = (currentDay + 1) * (double)dayLen;
             return Math.Max(0.0, nextDayStart - now);
+        }
+
+        /// <summary>Clears all bounty state/progress/boss-name keys from player customData.</summary>
+        public int ResetAll(Player player)
+        {
+            if (player == null) return 0;
+
+            var keysToRemove = new List<string>();
+            foreach (var key in player.m_customData.Keys)
+            {
+                if (key.StartsWith(StateKeyPrefix) ||
+                    key.StartsWith(ProgressKeyPrefix) ||
+                    key.StartsWith(BossNameKeyPrefix) ||
+                    key.StartsWith(SpawnPosKeyPrefix) ||
+                    key == LastDayKey)
+                    keysToRemove.Add(key);
+            }
+
+            foreach (var key in keysToRemove)
+                player.m_customData.Remove(key);
+
+            // Despawn all tracked creatures
+            foreach (var kvp in _bountyCreatures)
+            {
+                if (kvp.Value != null && !kvp.Value.IsDead())
+                {
+                    var nview = kvp.Value.GetComponent<ZNetView>();
+                    if (nview != null && nview.IsValid())
+                        nview.Destroy();
+                    else
+                        UnityEngine.Object.Destroy(kvp.Value.gameObject);
+                }
+            }
+            _bountyCreatures.Clear();
+
+            // Clear all minimap pins
+            foreach (var kvp in _bountyPins)
+            {
+                if (Minimap.instance != null && kvp.Value != null)
+                    Minimap.instance.RemovePin(kvp.Value);
+            }
+            _bountyPins.Clear();
+
+            // Remove all bounty status effects
+            foreach (var bountyId in _activeBountyIds)
+                RemoveBountyStatusEffect(player, bountyId);
+
+            // Reset active set and day tracking
+            _activeBountyIds.Clear();
+            _activeBountyIdsLoaded = false;
+            _lastDay = -1;
+
+            HaldorBounties.Log.LogInfo($"[BountyManager] Reset all bounties. Removed {keysToRemove.Count} keys.");
+            return keysToRemove.Count;
         }
 
         public void UpdateBountyPins()
@@ -499,6 +639,56 @@ namespace HaldorBounties
             }
         }
 
+        /// <summary>Finds and destroys any lingering creatures with the given bountyId ZDO tag.
+        /// Handles persistent NPCs from previous sessions that aren't tracked in _bountyCreatures.</summary>
+        private static void CleanupStaleCreatures(string bountyId)
+        {
+            try
+            {
+                int cleaned = 0;
+                var characters = Character.GetAllCharacters();
+                for (int i = characters.Count - 1; i >= 0; i--)
+                {
+                    var c = characters[i];
+                    if (c == null || c.IsPlayer()) continue;
+                    var nview = c.GetComponent<ZNetView>();
+                    var zdo = nview?.GetZDO();
+                    if (zdo == null) continue;
+                    if (zdo.GetString("HaldorBountyId", "") != bountyId) continue;
+
+                    if (nview.IsValid())
+                        nview.Destroy();
+                    else
+                        UnityEngine.Object.Destroy(c.gameObject);
+                    cleaned++;
+                }
+                if (cleaned > 0)
+                    HaldorBounties.Log.LogInfo($"[BountyManager] Cleaned up {cleaned} stale creatures for bounty: {bountyId}");
+            }
+            catch (Exception ex)
+            {
+                HaldorBounties.Log.LogWarning($"[BountyManager] Stale creature cleanup failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Destroys spawned creatures for a bounty (used on abandon/reset).</summary>
+        private void DespawnBountyCreature(string bountyId)
+        {
+            if (_bountyCreatures.TryGetValue(bountyId, out var creature))
+            {
+                if (creature != null && !creature.IsDead())
+                {
+                    var nview = creature.GetComponent<ZNetView>();
+                    if (nview != null && nview.IsValid())
+                        nview.Destroy();
+                    else
+                        UnityEngine.Object.Destroy(creature.gameObject);
+                    HaldorBounties.Log.LogInfo($"[BountyManager] Despawned creature for bounty: {bountyId}");
+                }
+                _bountyCreatures.Remove(bountyId);
+            }
+        }
+
         private void RemoveBountyPin(string bountyId)
         {
             if (_bountyPins.TryGetValue(bountyId, out var pin))
@@ -515,7 +705,7 @@ namespace HaldorBounties
             for (int attempt = 0; attempt < 30; attempt++)
             {
                 float   angle = UnityEngine.Random.Range(0f, 360f);
-                float   dist  = distance + UnityEngine.Random.Range(-50f, 50f);
+                float   dist  = distance + UnityEngine.Random.Range(-10f, 10f);
                 Vector3 pos   = center + Quaternion.Euler(0f, angle, 0f) * Vector3.forward * dist;
                 if (ZoneSystem.instance.GetGroundHeight(pos, out float height) && height > waterLevel)
                 {
@@ -532,38 +722,9 @@ namespace HaldorBounties
             return fallback;
         }
 
-        // ── Kill / Gather tracking ──
+        // ── Kill tracking ──
 
         // H-1: Filter to active bounties first — avoids iterating all 100+ entries on every event
-        public void IncrementGather(string prefabName, int count)
-        {
-            var player = Player.m_localPlayer;
-            if (player == null) return;
-
-            EnsureActiveBountyIdsLoaded();
-            if (_activeBountyIds.Count == 0) return;
-
-            foreach (var bountyId in _activeBountyIds)
-            {
-                if (!_bountyLookup.TryGetValue(bountyId, out var bounty)) continue;
-                if (bounty.Type != "Gather") continue;
-                if (!string.Equals(bounty.Target, prefabName, StringComparison.OrdinalIgnoreCase)) continue;
-
-                int current = GetProgress(bountyId);
-                if (current >= bounty.Amount) continue; // Already at goal, don't over-count
-
-                int progress = current + count;
-                player.m_customData[ProgressKeyPrefix + bountyId] = progress.ToString();
-                HaldorBounties.Log.LogInfo($"[BountyManager] Gather progress: {bountyId} ({progress}/{bounty.Amount})");
-
-                if (progress >= bounty.Amount)
-                {
-                    HaldorBounties.Log.LogInfo($"[BountyManager] Gather bounty ready: {bountyId}");
-                    MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center, $"Bounty Complete: {bounty.Title}!");
-                }
-            }
-        }
-
         public void IncrementKill(string prefabName, int level)
         {
             var player = Player.m_localPlayer;
@@ -615,19 +776,7 @@ namespace HaldorBounties
             if (!_bountyLookup.TryGetValue(bountyId, out var entry)) return false;
 
             var state = GetState(bountyId);
-
-            if (entry.Type == "Gather")
-            {
-                if (state != BountyState.Active && state != BountyState.Ready) return false;
-                var inv   = ((Humanoid)player).GetInventory();
-                int count = CountItems(inv, entry.Target);
-                if (count < entry.Amount) return false;
-                RemoveItems(inv, entry.Target, entry.Amount);
-            }
-            else
-            {
-                if (state != BountyState.Ready) return false;
-            }
+            if (state != BountyState.Ready) return false;
 
             var rewards = RewardResolver.ResolveRewards(entry);
             var chosen  = rewards.Find(r => r.Category == category);
@@ -652,6 +801,8 @@ namespace HaldorBounties
 
             player.m_customData[StateKeyPrefix + bountyId] = "claimed";
             player.m_customData.Remove(BossNameKeyPrefix + bountyId);
+            player.m_customData.Remove(SpawnPosKeyPrefix + bountyId);
+            RemoveBountyStatusEffect(player, bountyId);
             RemoveBountyPin(bountyId);
 
             // H-1: Remove from active set
@@ -664,41 +815,114 @@ namespace HaldorBounties
             return true;
         }
 
-        // ── Gather helpers ──
+        // ── Bounty status effects ──
 
-        public int CountGatherProgress(string bountyId) => GetProgress(bountyId);
+        private static Sprite _bountyIcon;
 
-        public int CountItemsInInventory(string bountyId)
+        private static Sprite GetOrLoadBountyIcon()
         {
-            if (!_bountyLookup.TryGetValue(bountyId, out var entry) || entry.Type != "Gather") return 0;
-            var player = Player.m_localPlayer;
-            if (player == null) return 0;
-            return CountItems(((Humanoid)player).GetInventory(), entry.Target);
-        }
-
-        private static int CountItems(Inventory inv, string prefabName)
-        {
-            int count = 0;
-            foreach (var item in inv.GetAllItems())
+            if (_bountyIcon != null) return _bountyIcon;
+            try
             {
-                string itemPrefab = item.m_dropPrefab?.name ?? item.m_shared.m_name;
-                if (string.Equals(itemPrefab, prefabName, StringComparison.OrdinalIgnoreCase))
-                    count += item.m_stack;
+                // Use the in-game Coins item icon as the bounty tracker icon
+                var coinPrefab = ObjectDB.instance?.GetItemPrefab("Coins");
+                var icons = coinPrefab?.GetComponent<ItemDrop>()?.m_itemData?.m_shared?.m_icons;
+                if (icons != null && icons.Length > 0)
+                    _bountyIcon = icons[0];
             }
-            return count;
+            catch { }
+            return _bountyIcon;
         }
 
-        private static void RemoveItems(Inventory inv, string prefabName, int amount)
+        private static void AddBountyStatusEffect(Player player, BountyEntry entry)
         {
-            int remaining = amount;
-            foreach (var item in inv.GetAllItems().ToList())
+            if (player == null || entry == null) return;
+            try
             {
-                if (remaining <= 0) break;
-                string itemPrefab = item.m_dropPrefab?.name ?? item.m_shared.m_name;
-                if (!string.Equals(itemPrefab, prefabName, StringComparison.OrdinalIgnoreCase)) continue;
-                int take = Mathf.Min(item.m_stack, remaining);
-                remaining -= take;
-                inv.RemoveItem(item, take);
+                var seMan = ((Humanoid)player).GetSEMan();
+                if (seMan == null) return;
+
+                // Don't duplicate
+                int hash = ("HaldorBounty_" + entry.Id).GetStableHashCode();
+                if (seMan.GetStatusEffect(hash) != null) return;
+
+                var se = ScriptableObject.CreateInstance<BountyStatusEffect>();
+                se.Setup(entry.Id, entry.Title, entry.Amount, GetOrLoadBountyIcon());
+                seMan.AddStatusEffect(se);
+            }
+            catch (Exception ex)
+            {
+                HaldorBounties.Log.LogWarning($"[BountyManager] Failed to add status effect for {entry.Id}: {ex.Message}");
+            }
+        }
+
+        private static void RemoveBountyStatusEffect(Player player, string bountyId)
+        {
+            if (player == null) return;
+            try
+            {
+                int hash = ("HaldorBounty_" + bountyId).GetStableHashCode();
+                ((Humanoid)player).GetSEMan()?.RemoveStatusEffect(hash);
+            }
+            catch (Exception ex)
+            {
+                HaldorBounties.Log.LogWarning($"[BountyManager] Failed to remove status effect for {bountyId}: {ex.Message}");
+            }
+        }
+
+        /// <summary>Re-applies status effects for all active bounties. Called on player spawn/load.</summary>
+        public void RefreshStatusEffects(Player player)
+        {
+            if (player == null) return;
+            EnsureActiveBountyIdsLoaded();
+            foreach (var bountyId in _activeBountyIds)
+            {
+                if (_bountyLookup.TryGetValue(bountyId, out var entry))
+                    AddBountyStatusEffect(player, entry);
+            }
+        }
+
+        /// <summary>Restores minimap pins from stored spawn positions for active bounties after relog.</summary>
+        public void RestoreBountyPins(Player player)
+        {
+            if (player == null || Minimap.instance == null) return;
+            EnsureActiveBountyIdsLoaded();
+
+            foreach (var bountyId in _activeBountyIds)
+            {
+                if (_bountyPins.ContainsKey(bountyId)) continue;
+                if (!_bountyLookup.TryGetValue(bountyId, out var entry)) continue;
+                if (entry.SpawnLevel <= 0) continue;
+
+                if (!player.m_customData.TryGetValue(SpawnPosKeyPrefix + bountyId, out string posStr)) continue;
+
+                string[] parts = posStr.Split(',');
+                if (parts.Length != 3) continue;
+                if (!float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x)) continue;
+                if (!float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y)) continue;
+                if (!float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z)) continue;
+
+                Vector3 pos = new Vector3(x, y, z);
+                string pinName = IsRaid(entry) ? entry.Title : GetBossName(bountyId);
+
+                try
+                {
+                    var pin = Minimap.instance.AddPin(pos, Minimap.PinType.EventArea, pinName, false, false);
+                    pin.m_worldSize = 80f;
+                    pin.m_animate   = true;
+                    _bountyPins[bountyId] = pin;
+                }
+                catch
+                {
+                    try
+                    {
+                        var pin = Minimap.instance.AddPin(pos, Minimap.PinType.Boss, pinName, true, false);
+                        _bountyPins[bountyId] = pin;
+                    }
+                    catch { }
+                }
+
+                HaldorBounties.Log.LogInfo($"[BountyManager] Restored pin for bounty: {bountyId} at {pos}");
             }
         }
 

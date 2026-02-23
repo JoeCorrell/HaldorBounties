@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace HaldorBounties
@@ -23,11 +24,15 @@ namespace HaldorBounties
         private GameObject _buttonTemplate;
         private float _buttonHeight = 36f;
 
-        // Left side — bounty list (split into Available / Active sections)
+        // Left side — bounty list (4 sections: Available / Active / Ready / Completed)
         private RectTransform _availableContent;
         private RectTransform _activeContent;
+        private RectTransform _readyContent;
+        private RectTransform _completedContent;
         private ScrollRect _availableScroll;
         private ScrollRect _activeScroll;
+        private ScrollRect _readyScroll;
+        private ScrollRect _completedScroll;
         private readonly List<BountyListRow> _rows = new List<BountyListRow>();
         private TMP_Text _dayLabel;
 
@@ -98,10 +103,16 @@ namespace HaldorBounties
             leftRT.offsetMin = new Vector2(8f, 8f);
             leftRT.offsetMax = new Vector2(-4f, -8f);
 
-            float sectionHeaderH = 28f;
+            float sectionHeaderH = 22f;
+            float sepPad = 2f;
 
-            // ── Available section header (top of left panel) ──
-            var availHdr = CreateText(leftPanel.transform, "AvailableHeader", "Available", 16f, GoldTextColor);
+            // Layout: 4 equal sections — Available 25%, Active 25%, Ready 25%, Completed 25%
+            float split3 = 0.75f; // top of Active
+            float split2 = 0.50f; // top of Ready
+            float split1 = 0.25f; // top of Completed
+
+            // ── Available section (top 25%) ──
+            var availHdr = CreateText(leftPanel.transform, "AvailableHeader", "Available", 13f, GoldTextColor);
             availHdr.alignment = TextAlignmentOptions.MidlineLeft;
             var ahRT = availHdr.GetComponent<RectTransform>();
             ahRT.anchorMin = new Vector2(0f, 1f);
@@ -110,8 +121,7 @@ namespace HaldorBounties
             ahRT.sizeDelta = new Vector2(-8f, sectionHeaderH);
             ahRT.anchoredPosition = new Vector2(4f, 0f);
 
-            // Day label (right side of Available header)
-            _dayLabel = CreateText(leftPanel.transform, "DayLabel", "", 12f, GrayColor);
+            _dayLabel = CreateText(leftPanel.transform, "DayLabel", "", 10f, GrayColor);
             _dayLabel.alignment = TextAlignmentOptions.MidlineRight;
             var dayRT = _dayLabel.GetComponent<RectTransform>();
             dayRT.anchorMin = new Vector2(0f, 1f);
@@ -120,38 +130,58 @@ namespace HaldorBounties
             dayRT.sizeDelta = new Vector2(-8f, sectionHeaderH);
             dayRT.anchoredPosition = new Vector2(-4f, 0f);
 
-            // ── Available scroll (top half, below header to midpoint) ──
             _availableContent = BuildScrollSection(leftPanel.transform,
-                new Vector2(0f, 0.5f), new Vector2(1f, 1f),
-                new Vector2(0f, 2f), new Vector2(0f, -sectionHeaderH));
+                new Vector2(0f, split3), new Vector2(1f, 1f),
+                new Vector2(0f, sepPad), new Vector2(0f, -sectionHeaderH));
             _availableScroll = _availableContent.transform.parent.parent.GetComponent<ScrollRect>();
 
-            // ── Section separator at midpoint ──
-            var secSep = new GameObject("SectionSep", typeof(RectTransform), typeof(Image));
-            secSep.transform.SetParent(leftPanel.transform, false);
-            var ssRT = secSep.GetComponent<RectTransform>();
-            ssRT.anchorMin = new Vector2(0f, 0.5f);
-            ssRT.anchorMax = new Vector2(1f, 0.5f);
-            ssRT.pivot = new Vector2(0.5f, 0.5f);
-            ssRT.sizeDelta = new Vector2(-8f, 1f);
-            ssRT.anchoredPosition = Vector2.zero;
-            secSep.GetComponent<Image>().color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.3f);
-
-            // ── Active section header (top of bottom half) ──
-            var activeHdr = CreateText(leftPanel.transform, "ActiveHeader", "Active", 16f, ActiveColor);
+            // ── Active section (25%) ──
+            CreateSectionSeparator(leftPanel.transform, split3);
+            var activeHdr = CreateText(leftPanel.transform, "ActiveHeader", "Active", 13f, ActiveColor);
             activeHdr.alignment = TextAlignmentOptions.MidlineLeft;
             var actRT = activeHdr.GetComponent<RectTransform>();
-            actRT.anchorMin = new Vector2(0f, 0.5f);
-            actRT.anchorMax = new Vector2(1f, 0.5f);
+            actRT.anchorMin = new Vector2(0f, split3);
+            actRT.anchorMax = new Vector2(1f, split3);
             actRT.pivot = new Vector2(0.5f, 1f);
             actRT.sizeDelta = new Vector2(-8f, sectionHeaderH);
-            actRT.anchoredPosition = new Vector2(4f, -2f);
+            actRT.anchoredPosition = new Vector2(4f, -sepPad);
 
-            // ── Active scroll (bottom half, below active header to bottom) ──
             _activeContent = BuildScrollSection(leftPanel.transform,
-                new Vector2(0f, 0f), new Vector2(1f, 0.5f),
-                new Vector2(0f, 0f), new Vector2(0f, -(sectionHeaderH + 4f)));
+                new Vector2(0f, split2), new Vector2(1f, split3),
+                new Vector2(0f, sepPad), new Vector2(0f, -(sectionHeaderH + sepPad * 2)));
             _activeScroll = _activeContent.transform.parent.parent.GetComponent<ScrollRect>();
+
+            // ── Ready section (25%) — bright green for attention ──
+            CreateSectionSeparator(leftPanel.transform, split2);
+            var readyHdr = CreateText(leftPanel.transform, "ReadyHeader", "Ready", 13f, ReadyColor);
+            readyHdr.alignment = TextAlignmentOptions.MidlineLeft;
+            var rdyRT = readyHdr.GetComponent<RectTransform>();
+            rdyRT.anchorMin = new Vector2(0f, split2);
+            rdyRT.anchorMax = new Vector2(1f, split2);
+            rdyRT.pivot = new Vector2(0.5f, 1f);
+            rdyRT.sizeDelta = new Vector2(-8f, sectionHeaderH);
+            rdyRT.anchoredPosition = new Vector2(4f, -sepPad);
+
+            _readyContent = BuildScrollSection(leftPanel.transform,
+                new Vector2(0f, split1), new Vector2(1f, split2),
+                new Vector2(0f, sepPad), new Vector2(0f, -(sectionHeaderH + sepPad * 2)));
+            _readyScroll = _readyContent.transform.parent.parent.GetComponent<ScrollRect>();
+
+            // ── Completed section (bottom 25%) ──
+            CreateSectionSeparator(leftPanel.transform, split1);
+            var compHdr = CreateText(leftPanel.transform, "CompletedHeader", "Completed", 13f, ClaimedColor);
+            compHdr.alignment = TextAlignmentOptions.MidlineLeft;
+            var compRT = compHdr.GetComponent<RectTransform>();
+            compRT.anchorMin = new Vector2(0f, split1);
+            compRT.anchorMax = new Vector2(1f, split1);
+            compRT.pivot = new Vector2(0.5f, 1f);
+            compRT.sizeDelta = new Vector2(-8f, sectionHeaderH);
+            compRT.anchoredPosition = new Vector2(4f, -sepPad);
+
+            _completedContent = BuildScrollSection(leftPanel.transform,
+                new Vector2(0f, 0f), new Vector2(1f, split1),
+                new Vector2(0f, 0f), new Vector2(0f, -(sectionHeaderH + sepPad * 2)));
+            _completedScroll = _completedContent.transform.parent.parent.GetComponent<ScrollRect>();
 
             // ── Vertical separator ──
             var vsep = new GameObject("VSeparator", typeof(RectTransform), typeof(Image));
@@ -163,7 +193,9 @@ namespace HaldorBounties
             vsRT.sizeDelta = new Vector2(1f, 0f);
             vsRT.offsetMin = new Vector2(-0.5f, 12f);
             vsRT.offsetMax = new Vector2(0.5f, -8f);
-            vsep.GetComponent<Image>().color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.3f);
+            var vsepImg = vsep.GetComponent<Image>();
+            vsepImg.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.3f);
+            vsepImg.raycastTarget = false;
 
             // ── Right panel (detail) ──
             var rightPanel = new GameObject("RightPanel", typeof(RectTransform));
@@ -261,7 +293,9 @@ namespace HaldorBounties
             vpRT2.anchorMax = Vector2.one;
             vpRT2.offsetMin = Vector2.zero;
             vpRT2.offsetMax = Vector2.zero;
-            descVP.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.01f);
+            var vpImg = descVP.GetComponent<Image>();
+            vpImg.color = new Color(0f, 0f, 0f, 0.01f);
+            vpImg.raycastTarget = false;
             descVP.GetComponent<Mask>().showMaskGraphic = false;
 
             var descContent = new GameObject("Content", typeof(RectTransform));
@@ -342,6 +376,7 @@ namespace HaldorBounties
             pbRT.sizeDelta = new Vector2(-24f, 26f);
             pbRT.anchoredPosition = new Vector2(0f, bottomY);
             var pbImg = _progressBarRoot.GetComponent<Image>();
+            pbImg.raycastTarget = false;
             if (_progressBarSprite != null)
             {
                 pbImg.sprite = _progressBarSprite;
@@ -363,6 +398,7 @@ namespace HaldorBounties
             fillRT.pivot = new Vector2(0f, 0.5f);
             _progressBarFill = fillGO.GetComponent<Image>();
             _progressBarFill.color = GoldColor;
+            _progressBarFill.raycastTarget = false;
 
             // Progress text — centered inside the progress bar, rendered on top of fill
             _detailProgress = CreateText(_progressBarRoot.transform, "DetailProgress", "", 14f, Color.white);
@@ -377,17 +413,11 @@ namespace HaldorBounties
 
         private Button CreateActionButton(Transform parent)
         {
+            if (_buttonTemplate == null) return null;
+
             var go = UnityEngine.Object.Instantiate(_buttonTemplate, parent);
             go.name = "ActionButton";
             go.SetActive(true);
-
-            // Remove Animator — it can override button states and block clicks
-            var anim = go.GetComponent("Animator") as Component;
-            if (anim != null) UnityEngine.Object.DestroyImmediate(anim);
-
-            // Remove layout components that may interfere
-            foreach (var lg in go.GetComponents<LayoutGroup>()) UnityEngine.Object.DestroyImmediate(lg);
-            foreach (var csf in go.GetComponents<ContentSizeFitter>()) UnityEngine.Object.DestroyImmediate(csf);
 
             var btn = go.GetComponent<Button>();
             if (btn != null)
@@ -396,34 +426,26 @@ namespace HaldorBounties
                 btn.onClick.AddListener(OnActionClicked);
                 btn.interactable = true;
                 btn.navigation = new Navigation { mode = Navigation.Mode.None };
-                btn.transition = Selectable.Transition.ColorTint;
-                var colors = btn.colors;
-                colors.normalColor = Color.white;
-                colors.highlightedColor = new Color(0.85f, 0.85f, 0.85f, 1f);
-                colors.pressedColor = new Color(0.65f, 0.65f, 0.65f, 1f);
-                colors.selectedColor = Color.white;
-                colors.fadeDuration = 0.08f;
-                btn.colors = colors;
             }
 
             _actionButtonLabel = go.GetComponentInChildren<TMP_Text>(true);
             if (_actionButtonLabel != null)
             {
-                _actionButtonLabel.text = "Accept";
                 _actionButtonLabel.gameObject.SetActive(true);
+                _actionButtonLabel.text = "Accept";
             }
 
-            // Strip hint children (keep only the label text)
-            var txt = go.GetComponentInChildren<TMP_Text>(true);
+            // Strip hint children (keep only the label text) — identical to TraderUI.StripButtonHints
             for (int i = go.transform.childCount - 1; i >= 0; i--)
             {
                 var child = go.transform.GetChild(i);
-                if (txt != null && (child.gameObject == txt.gameObject || txt.transform.IsChildOf(child)))
+                if (_actionButtonLabel != null &&
+                    (child.gameObject == _actionButtonLabel.gameObject || _actionButtonLabel.transform.IsChildOf(child)))
                     continue;
                 UnityEngine.Object.DestroyImmediate(child.gameObject);
             }
 
-            // Add tint overlay (matches TraderUI buy/sell button style)
+            // Dark tint overlay — identical to TraderUI action button
             var tintGO = new GameObject("Tint", typeof(RectTransform), typeof(Image));
             tintGO.transform.SetParent(go.transform, false);
             tintGO.transform.SetAsFirstSibling();
@@ -436,7 +458,7 @@ namespace HaldorBounties
             tintImg.color = new Color(0f, 0f, 0f, 0.75f);
             tintImg.raycastTarget = false;
 
-            // Bottom-anchored, full-width — matches TraderUI action button style
+            // Bottom-anchored, full-width — identical to TraderUI action button
             var rt = go.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0f, 0f);
             rt.anchorMax = new Vector2(1f, 0f);
@@ -486,7 +508,7 @@ namespace HaldorBounties
             rt.sizeDelta = new Vector2(totalW, RewardBtnSize);
             rt.anchoredPosition = new Vector2(0f, yPos);
 
-            // 4 square buttons, manually positioned
+            // 4 visual-only button slots — clicks handled via raw Input in UpdatePerFrame
             _rewardChoiceButtons.Clear();
             for (int i = 0; i < 4; i++)
             {
@@ -498,9 +520,41 @@ namespace HaldorBounties
             _rewardChoiceRow.SetActive(false);
         }
 
+        /// <summary>
+        /// Checks raw mouse input against reward button rects.
+        /// Bypasses Unity EventSystem entirely — called from UpdatePerFrame.
+        /// </summary>
+        private void CheckRewardButtonClicks()
+        {
+            if (_rewardChoiceRow == null || !_rewardChoiceRow.activeSelf) return;
+            if (_rewardChoiceButtons.Count == 0) return;
+            if (!Input.GetMouseButtonDown(0)) return;
+
+            // Valheim uses Screen Space - Camera canvas — must pass the canvas camera
+            // or RectangleContainsScreenPoint gives wrong coordinates
+            Camera uiCam = null;
+            var canvas = _rewardChoiceRow.GetComponentInParent<Canvas>();
+            if (canvas != null) uiCam = canvas.worldCamera;
+
+            Vector2 mousePos = Input.mousePosition;
+            for (int i = 0; i < _rewardChoiceButtons.Count; i++)
+            {
+                var btn = _rewardChoiceButtons[i];
+                if (btn == null || !btn.interactable) continue;
+
+                var btnRT = btn.GetComponent<RectTransform>();
+                if (RectTransformUtility.RectangleContainsScreenPoint(btnRT, mousePos, uiCam))
+                {
+                    OnRewardChosen(i);
+                    return;
+                }
+            }
+        }
+
         private Button CreateRewardChoiceButton(int index, float xPos)
         {
-            // Build from scratch — no template
+            // Visual-only button — all child graphics have raycastTarget=false.
+            // Clicks are handled by the parent row's EventTrigger.
             var btnGO = new GameObject($"RewardBtn_{index}", typeof(RectTransform), typeof(Image), typeof(Button));
             btnGO.transform.SetParent(_rewardChoiceRow.transform, false);
 
@@ -511,9 +565,10 @@ namespace HaldorBounties
             btnRT.sizeDelta = new Vector2(RewardBtnSize, RewardBtnSize);
             btnRT.anchoredPosition = new Vector2(xPos, 0f);
 
-            // Solid opaque background
+            // Background — visual only, NOT a raycast target
             var bgImg = btnGO.GetComponent<Image>();
             bgImg.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+            bgImg.raycastTarget = false;
 
             // Sprite overlay (CategoryBackground texture)
             if (_catBtnSprite != null)
@@ -544,21 +599,11 @@ namespace HaldorBounties
             tintImg.color = new Color(0f, 0f, 0f, 0.55f);
             tintImg.raycastTarget = false;
 
-            // Button setup
+            // Button component kept only for interactable flag and gamepad visuals
             var btn = btnGO.GetComponent<Button>();
             btn.targetGraphic = bgImg;
-            int idx = index;
-            btn.onClick.AddListener(() => OnRewardChosen(idx));
-            btn.transition = Selectable.Transition.ColorTint;
+            btn.transition = Selectable.Transition.None;
             btn.navigation = new Navigation { mode = Navigation.Mode.None };
-            var colors = btn.colors;
-            colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(0.85f, 0.85f, 0.85f, 1f);
-            colors.pressedColor = new Color(0.65f, 0.65f, 0.65f, 1f);
-            colors.selectedColor = Color.white;
-            colors.colorMultiplier = 1f;
-            colors.fadeDuration = 0.08f;
-            btn.colors = colors;
 
             // Icon image (same anchors as category buttons: 0.15-0.85)
             var iconGO = new GameObject("Icon", typeof(RectTransform), typeof(Image));
@@ -654,6 +699,9 @@ namespace HaldorBounties
                 _lastDisplayedDay = currentDay;
             }
 
+            // Raw mouse click detection for reward buttons — bypasses EventSystem
+            CheckRewardButtonClicks();
+
             if (!ZInput.IsGamepadActive()) return;
 
             // D-pad up/down — navigate bounty list
@@ -707,9 +755,14 @@ namespace HaldorBounties
                 }
             }
 
-            // Clear EventSystem selection to prevent Unity navigation conflicts
-            if (UnityEngine.EventSystems.EventSystem.current != null)
-                UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(null);
+            // Clear EventSystem selection only when gamepad navigates — prevents
+            // conflicts with Unity's built-in navigation without blocking mouse clicks
+            if (ZInput.GetButtonDown("JoyLStickDown") || ZInput.GetButtonDown("JoyLStickUp") ||
+                ZInput.GetButtonDown("JoyDPadDown") || ZInput.GetButtonDown("JoyDPadUp"))
+            {
+                if (EventSystem.current != null)
+                    EventSystem.current.SetSelectedGameObject(null);
+            }
         }
 
         private void NavigateBountyList(int dir)
@@ -743,6 +796,10 @@ namespace HaldorBounties
                 scroll = _availableScroll;
             else if (_activeScroll != null && rowRT.IsChildOf(_activeScroll.content))
                 scroll = _activeScroll;
+            else if (_readyScroll != null && rowRT.IsChildOf(_readyScroll.content))
+                scroll = _readyScroll;
+            else if (_completedScroll != null && rowRT.IsChildOf(_completedScroll.content))
+                scroll = _completedScroll;
             if (scroll == null) return;
 
             float contentH = scroll.content.rect.height;
@@ -837,20 +894,25 @@ namespace HaldorBounties
             float rowH = 32f;
             float gap = 2f;
 
-            // Separate into available (inactive) and active groups
+            // Separate into 4 groups: Available, Active, Ready, Completed
             var available = new List<BountyEntry>();
             var active = new List<BountyEntry>();
+            var ready = new List<BountyEntry>();
+            var completed = new List<BountyEntry>();
 
             foreach (var b in bounties)
             {
                 var state = BountyManager.Instance.GetState(b.Id);
-                if (state == BountyState.Active || state == BountyState.Ready)
+                if (state == BountyState.Ready)
+                    ready.Add(b);
+                else if (state == BountyState.Active)
                     active.Add(b);
+                else if (state == BountyState.Claimed)
+                    completed.Add(b);
                 else
                     available.Add(b);
             }
 
-            // Build available rows (top section)
             float yOff = 0f;
             foreach (var b in available)
             {
@@ -860,7 +922,6 @@ namespace HaldorBounties
             }
             _availableContent.sizeDelta = new Vector2(0f, -yOff);
 
-            // Build active rows (bottom section)
             yOff = 0f;
             foreach (var b in active)
             {
@@ -869,6 +930,24 @@ namespace HaldorBounties
                 yOff -= (rowH + gap);
             }
             _activeContent.sizeDelta = new Vector2(0f, -yOff);
+
+            yOff = 0f;
+            foreach (var b in ready)
+            {
+                var row = CreateRow(b, yOff, _readyContent);
+                _rows.Add(row);
+                yOff -= (rowH + gap);
+            }
+            _readyContent.sizeDelta = new Vector2(0f, -yOff);
+
+            yOff = 0f;
+            foreach (var b in completed)
+            {
+                var row = CreateRow(b, yOff, _completedContent);
+                _rows.Add(row);
+                yOff -= (rowH + gap);
+            }
+            _completedContent.sizeDelta = new Vector2(0f, -yOff);
         }
 
         public void ForceRebuild()
@@ -879,16 +958,23 @@ namespace HaldorBounties
 
         private void UpdateRows()
         {
-            // M-5: Detect if any row moved to a different section (e.g. Available→Active after kill completes)
-            // and force a full rebuild so the list order stays correct.
+            // Detect if any row moved to a different section and force a full rebuild.
             foreach (var row in _rows)
             {
                 if (row.GO == null) continue;
                 var state = BountyManager.Instance?.GetState(row.BountyId) ?? BountyState.Available;
 
-                bool shouldBeActive = state == BountyState.Active || state == BountyState.Ready;
+                bool isInAvailable  = _availableContent != null && row.GO.transform.IsChildOf(_availableContent);
                 bool isInActive     = _activeContent != null && row.GO.transform.IsChildOf(_activeContent);
-                if (shouldBeActive != isInActive)
+                bool isInReady      = _readyContent != null && row.GO.transform.IsChildOf(_readyContent);
+                bool isInCompleted  = _completedContent != null && row.GO.transform.IsChildOf(_completedContent);
+
+                bool shouldBeActive    = state == BountyState.Active;
+                bool shouldBeReady     = state == BountyState.Ready;
+                bool shouldBeCompleted = state == BountyState.Claimed;
+                bool shouldBeAvailable = !shouldBeActive && !shouldBeReady && !shouldBeCompleted;
+
+                if (shouldBeActive != isInActive || shouldBeReady != isInReady || shouldBeCompleted != isInCompleted || shouldBeAvailable != isInAvailable)
                 {
                     ForceRebuild();
                     return;
@@ -997,17 +1083,8 @@ namespace HaldorBounties
             }
 
             // Progress
-            int progress, target;
-            if (entry.Type == "Gather" && (state == BountyState.Active || state == BountyState.Available))
-            {
-                progress = BountyManager.Instance.CountGatherProgress(_selectedBountyId);
-                target = entry.Amount;
-            }
-            else
-            {
-                progress = BountyManager.Instance.GetProgress(_selectedBountyId);
-                target = entry.Amount;
-            }
+            int progress = BountyManager.Instance.GetProgress(_selectedBountyId);
+            int target = entry.Amount;
 
             if (state == BountyState.Claimed)
             {
@@ -1020,8 +1097,16 @@ namespace HaldorBounties
             }
             else
             {
-                _detailProgress.text = $"Progress: {Mathf.Min(progress, target)} / {target}";
-                _detailProgress.color = progress >= target ? ReadyColor : Color.white;
+                if (progress >= target)
+                {
+                    _detailProgress.text = "COMPLETED";
+                    _detailProgress.color = ReadyColor;
+                }
+                else
+                {
+                    _detailProgress.text = $"Progress: {progress} / {target}";
+                    _detailProgress.color = Color.white;
+                }
             }
 
             // Progress bar
@@ -1061,11 +1146,6 @@ namespace HaldorBounties
 
                 // Only interactable when Ready
                 bool canClaim = state == BountyState.Ready;
-                if (canClaim && entry.Type == "Gather")
-                {
-                    int invCount = BountyManager.Instance.CountItemsInInventory(_selectedBountyId);
-                    canClaim = invCount >= entry.Amount;
-                }
                 foreach (var btn in _rewardChoiceButtons)
                 {
                     if (btn != null) btn.interactable = canClaim;
@@ -1095,9 +1175,8 @@ namespace HaldorBounties
                 }
                 else
                 {
-                    string verb = entry.Type == "Gather" ? "Gather" : "Kill";
                     string targetName = entry.Target.Replace("_", " ");
-                    _detailGoal.text = $"{verb} {entry.Amount}x {targetName}";
+                    _detailGoal.text = $"Kill {entry.Amount}x {targetName}";
                 }
                 _detailGoal.color = state == BountyState.Claimed ? DimColor : Color.white;
             }
@@ -1121,33 +1200,13 @@ namespace HaldorBounties
                         if (_actionButtonLabel != null) _actionButtonLabel.text = "Abandon";
                         break;
                     case BountyState.Ready:
-                    {
-                        bool canClaim = true;
-                        if (entry.Type == "Gather")
+                        _actionButton.gameObject.SetActive(false);
+                        if (_detailGoal != null)
                         {
-                            int invCount = BountyManager.Instance.CountItemsInInventory(_selectedBountyId);
-                            canClaim = invCount >= entry.Amount;
-                        }
-                        if (canClaim)
-                        {
-                            // Reward buttons are inline — hide action button
-                            _actionButton.gameObject.SetActive(false);
-                            if (_detailGoal != null)
-                            {
-                                _detailGoal.text = "Choose your reward:";
-                                _detailGoal.color = ReadyColor;
-                            }
-                        }
-                        else
-                        {
-                            _actionButton.gameObject.SetActive(true);
-                            _actionButton.interactable = false;
-                            int invCount = BountyManager.Instance.CountItemsInInventory(_selectedBountyId);
-                            if (_actionButtonLabel != null)
-                                _actionButtonLabel.text = $"Need {entry.Amount - invCount} more in inventory";
+                            _detailGoal.text = "Choose your reward:";
+                            _detailGoal.color = ReadyColor;
                         }
                         break;
-                    }
                     case BountyState.Claimed:
                         _actionButton.gameObject.SetActive(true);
                         _actionButton.interactable = false;
@@ -1186,12 +1245,8 @@ namespace HaldorBounties
                 case BountyState.Active:
                     BountyManager.Instance.AbandonBounty(_selectedBountyId);
                     break;
-                // H-5: Ready state is handled exclusively by the reward choice buttons.
-                // The action button is hidden when canClaim=true, so this path should
-                // not fire normally. Explicitly making it a no-op prevents the gamepad
-                // JoyButtonA fallback from hard-coding a coins-only claim.
                 case BountyState.Ready:
-                    return; // do nothing — player must click a reward button
+                    return; // Reward must be chosen via the reward icon buttons
             }
             ForceRebuild();
         }
@@ -1220,6 +1275,7 @@ namespace HaldorBounties
                 case "Medium": return "Difficulty: Medium";
                 case "Hard": return "Difficulty: Hard";
                 case "Miniboss": case "Special": return "Miniboss Bounty";
+                case "Raid": return "Raid Bounty";
                 default: return "";
             }
         }
@@ -1232,15 +1288,13 @@ namespace HaldorBounties
                 case "Medium": return new Color(0.9f, 0.78f, 0.3f, 1f);
                 case "Hard": return new Color(0.9f, 0.35f, 0.3f, 1f);
                 case "Miniboss": case "Special": return new Color(0.8f, 0.3f, 0.8f, 1f);
+                case "Raid": return new Color(0.9f, 0.4f, 0.2f, 1f);
                 default: return GrayColor;
             }
         }
 
-        private static readonly Color GatherColor = new Color(0.4f, 0.75f, 0.9f, 1f); // Light blue
-
         private static Color GetRowColor(string type, string tier)
         {
-            if (type == "Gather") return GatherColor;
             return GetTierColor(tier);
         }
 
@@ -1268,7 +1322,24 @@ namespace HaldorBounties
             rt.pivot = new Vector2(0.5f, 1f);
             rt.sizeDelta = new Vector2(-16f, 1f);
             rt.anchoredPosition = new Vector2(0f, yPos);
-            sep.GetComponent<Image>().color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.25f);
+            var sepImg = sep.GetComponent<Image>();
+            sepImg.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.25f);
+            sepImg.raycastTarget = false;
+        }
+
+        private static void CreateSectionSeparator(Transform parent, float anchorY)
+        {
+            var sep = new GameObject("SectionSep", typeof(RectTransform), typeof(Image));
+            sep.transform.SetParent(parent, false);
+            var rt = sep.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0f, anchorY);
+            rt.anchorMax = new Vector2(1f, anchorY);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(-8f, 1f);
+            rt.anchoredPosition = Vector2.zero;
+            var ssImg = sep.GetComponent<Image>();
+            ssImg.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.3f);
+            ssImg.raycastTarget = false;
         }
     }
 }

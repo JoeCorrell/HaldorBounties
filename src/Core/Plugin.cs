@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using BepInEx;
 using BepInEx.Logging;
@@ -21,7 +22,8 @@ namespace HaldorBounties
             Log = Logger;
             Log.LogInfo($"{PluginName} v{PluginVersion} loading...");
 
-            BountyConfig.Initialize();
+            string configPath = Path.Combine(Paths.ConfigPath, "HaldorBounties.bounties.json");
+            BountyConfig.Initialize(configPath);
             BountyManager.Initialize();
 
             _harmony = new Harmony(PluginGUID);

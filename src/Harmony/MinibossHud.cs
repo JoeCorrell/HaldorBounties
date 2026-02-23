@@ -6,79 +6,134 @@ namespace HaldorBounties
 {
     public static class MinibossHud
     {
-        // ── Restore m_boss and m_name from ZDO when creature loads ──
-        // Uses Start instead of Awake to ensure ZNetView.Awake has already run
-        // and the ZDO is available. m_boss and m_name are C# fields that reset
-        // to prefab defaults when the creature's zone reloads or the game restarts.
-        [HarmonyPatch(typeof(Character), "Start")]
-        [HarmonyPostfix]
-        private static void CharacterStart_Postfix(Character __instance)
+        private static bool TryApplyMinibossFlags(Character character, out string bountyId)
         {
-            try
+            bountyId = "";
+            if (character == null || character.IsPlayer()) return false;
+
+            var nview = character.GetComponent<ZNetView>();
+            if (nview == null) return false;
+            var zdo = nview.GetZDO();
+            if (zdo == null || !zdo.GetBool("HaldorBountyMiniboss")) return false;
+
+            bountyId = zdo.GetString("HaldorBountyId", "");
+            string bossName = zdo.GetString("HaldorBountyBossName", "");
+
+            // Check if this is a raid bounty — raids use normal enemy HUD, not boss bar
+            bool isRaid = false;
+            string localId = bountyId;
+            if (BountyManager.Instance != null && !string.IsNullOrEmpty(localId))
             {
-                if (__instance == null || __instance.IsPlayer()) return;
-
-                var nview = __instance.GetComponent<ZNetView>();
-                if (nview == null) return;
-                var zdo = nview.GetZDO();
-                if (zdo == null || !zdo.GetBool("HaldorBountyMiniboss")) return;
-
-                // Re-apply boss properties from ZDO
-                __instance.m_boss = true;
-
-                string bossName = zdo.GetString("HaldorBountyBossName", "");
-                if (!string.IsNullOrEmpty(bossName))
-                    __instance.m_name = bossName;
-
-                // Re-register with BountyManager for pin tracking
-                string bountyId = zdo.GetString("HaldorBountyId", "");
-                if (!string.IsNullOrEmpty(bountyId))
-                    BountyManager.Instance?.RegisterBountyCreature(bountyId, __instance);
-
-                HaldorBounties.Log.LogInfo($"[MinibossHud] Restored bounty creature: {bossName} (bounty={bountyId})");
+                var entry = BountyConfig.Bounties.Find(b => b.Id == localId);
+                if (entry != null && entry.Tier == "Raid")
+                    isRaid = true;
             }
-            catch (Exception ex)
+
+            if (isRaid)
             {
-                HaldorBounties.Log.LogWarning($"[MinibossHud] CharacterStart error: {ex.Message}");
+                character.m_name = "Valheim Raider";
+                character.m_boss = false;
+                character.m_dontHideBossHud = false;
+            }
+            else
+            {
+                character.m_boss = true;
+                character.m_dontHideBossHud = true;
+                if (!string.IsNullOrEmpty(bossName))
+                    character.m_name = bossName;
+            }
+
+            return true;
+        }
+
+        // Restore miniboss flags/name after reloads or world streaming.
+        [HarmonyPatch(typeof(Character), "Start")]
+        public static class CharacterStartPatch
+        {
+            [HarmonyPostfix]
+            private static void Postfix(Character __instance)
+            {
+                try
+                {
+                    if (!TryApplyMinibossFlags(__instance, out string bountyId)) return;
+
+                    if (!string.IsNullOrEmpty(bountyId))
+                        BountyManager.Instance?.RegisterBountyCreature(bountyId, __instance);
+
+                    HaldorBounties.Log.LogInfo($"[MinibossHud] Restored bounty creature: {__instance.m_name} (bounty={bountyId})");
+                }
+                catch (Exception ex)
+                {
+                    HaldorBounties.Log.LogWarning($"[MinibossHud] CharacterStart error: {ex.Message}");
+                }
             }
         }
 
-        // ── Scale down miniboss HUD (75% of normal boss bar) ──
         [HarmonyPatch(typeof(EnemyHud), "ShowHud")]
-        [HarmonyPostfix]
-        private static void ShowHud_Postfix(EnemyHud __instance, Character c, bool isMount)
+        public static class ShowHudPatch
         {
-            try
+            // Ensure miniboss flags are applied before EnemyHud chooses boss vs normal HUD.
+            [HarmonyPrefix]
+            private static void Prefix(EnemyHud __instance, Character c, bool isMount)
             {
-                if (c == null || !c.IsBoss() || isMount) return;
+                try
+                {
+                    if (isMount || c == null) return;
 
-                // Check for our ZDO tag
-                var nview = c.GetComponent<ZNetView>();
-                if (nview == null) return;
-                var zdo = nview.GetZDO();
-                if (zdo == null || !zdo.GetBool("HaldorBountyMiniboss")) return;
+                    bool wasBoss = c.IsBoss();
+                    if (!TryApplyMinibossFlags(c, out string bountyId)) return;
 
-                // Get the HUD data for this character
-                var hudsField = AccessTools.Field(typeof(EnemyHud), "m_huds");
-                if (hudsField == null) return;
+                    if (!string.IsNullOrEmpty(bountyId))
+                        BountyManager.Instance?.RegisterBountyCreature(bountyId, c);
 
-                var huds = hudsField.GetValue(__instance) as System.Collections.IDictionary;
-                if (huds == null || !huds.Contains(c)) return;
+                    // If this character just became boss-tagged, rebuild stale non-boss HUD data.
+                    if (wasBoss) return;
 
-                // Access the m_gui field from HudData
-                var hudData = huds[c];
-                var guiField = AccessTools.Field(hudData.GetType(), "m_gui");
-                if (guiField == null) return;
+                    var hudsField = AccessTools.Field(typeof(EnemyHud), "m_huds");
+                    if (hudsField == null) return;
+                    var huds = hudsField.GetValue(__instance) as System.Collections.IDictionary;
+                    if (huds == null || !huds.Contains(c)) return;
 
-                var gui = guiField.GetValue(hudData) as GameObject;
-                if (gui == null) return;
+                    var hudData = huds[c];
+                    var guiField = AccessTools.Field(hudData.GetType(), "m_gui");
+                    if (guiField?.GetValue(hudData) is GameObject gui)
+                        UnityEngine.Object.Destroy(gui);
 
-                // Scale down the miniboss HUD (75% of normal boss bar)
-                gui.transform.localScale = new Vector3(0.75f, 0.75f, 1f);
+                    huds.Remove(c);
+                }
+                catch (Exception ex)
+                {
+                    HaldorBounties.Log.LogWarning($"[MinibossHud] ShowHud prefix error: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            // Scale down miniboss HUD to 75% of normal boss bar size.
+            [HarmonyPostfix]
+            private static void Postfix(EnemyHud __instance, Character c, bool isMount)
             {
-                HaldorBounties.Log.LogWarning($"[MinibossHud] ShowHud error: {ex.Message}");
+                try
+                {
+                    if (isMount || !TryApplyMinibossFlags(c, out _)) return;
+
+                    var hudsField = AccessTools.Field(typeof(EnemyHud), "m_huds");
+                    if (hudsField == null) return;
+
+                    var huds = hudsField.GetValue(__instance) as System.Collections.IDictionary;
+                    if (huds == null || !huds.Contains(c)) return;
+
+                    var hudData = huds[c];
+                    var guiField = AccessTools.Field(hudData.GetType(), "m_gui");
+                    if (guiField == null) return;
+
+                    var gui = guiField.GetValue(hudData) as GameObject;
+                    if (gui == null) return;
+
+                    gui.transform.localScale = new Vector3(0.75f, 0.75f, 1f);
+                }
+                catch (Exception ex)
+                {
+                    HaldorBounties.Log.LogWarning($"[MinibossHud] ShowHud error: {ex.Message}");
+                }
             }
         }
     }

@@ -19,6 +19,7 @@ namespace HaldorBounties
 
         /// <summary>
         /// Resolve the 4 reward options for a bounty. Deterministic based on bounty ID.
+        /// Categories: Bank Deposit, Ingots, Resources, Consumables.
         /// </summary>
         public static List<ResolvedReward> ResolveRewards(BountyEntry entry)
         {
@@ -27,10 +28,14 @@ namespace HaldorBounties
             var rng = new System.Random(seed);
             var biome = RewardPool.GetBiomeTier(entry);
             bool isMiniboss = entry.Tier == "Miniboss" || entry.Tier == "Special";
+            bool isRaid = entry.Tier == "Raid";
 
-            // 1) Coins
-            int coinAmount = entry.Reward;
-            if (isMiniboss) coinAmount = (int)(coinAmount * 1.5f);
+            // Multipliers: miniboss 1.5x, raid 1.25x
+            float coinMult = isMiniboss ? 1.5f : isRaid ? 1.25f : 1f;
+            float stackMult = isMiniboss ? 1.5f : isRaid ? 1.25f : 1f;
+
+            // 1) Bank Deposit — coins deposited directly into bank
+            int coinAmount = (int)(entry.Reward * coinMult);
             rewards.Add(new ResolvedReward
             {
                 Category = RewardCategory.Coins,
@@ -41,24 +46,23 @@ namespace HaldorBounties
                 Quality = 1,
             });
 
-            // 2) Item (weapon/armor/tool)
-            rewards.Add(ResolveFromPool(RewardPool.ItemPool, biome, rng, isMiniboss, RewardCategory.Items));
+            // 2) Ingots (refined metals/bars)
+            rewards.Add(ResolveFromPool(RewardPool.IngotPool, biome, rng, stackMult, RewardCategory.Ingots));
 
             // 3) Resources (crafting materials)
-            rewards.Add(ResolveFromPool(RewardPool.ResourcePool, biome, rng, isMiniboss, RewardCategory.Resources));
+            rewards.Add(ResolveFromPool(RewardPool.ResourcePool, biome, rng, stackMult, RewardCategory.Resources));
 
             // 4) Consumables (food/mead)
-            rewards.Add(ResolveFromPool(RewardPool.ConsumablePool, biome, rng, isMiniboss, RewardCategory.Consumables));
+            rewards.Add(ResolveFromPool(RewardPool.ConsumablePool, biome, rng, stackMult, RewardCategory.Consumables));
 
             return rewards;
         }
 
         private static ResolvedReward ResolveFromPool(
             Dictionary<BiomeTier, RewardItem[]> pool,
-            BiomeTier biome, System.Random rng, bool isMiniboss,
+            BiomeTier biome, System.Random rng, float stackMult,
             RewardCategory category)
         {
-            // L-8: Use TryGetValue for Meadows fallback to avoid KeyNotFoundException on empty pools
             if (!pool.TryGetValue(biome, out var items) || items.Length == 0)
             {
                 if (!pool.TryGetValue(BiomeTier.Meadows, out items) || items == null || items.Length == 0)
@@ -69,13 +73,8 @@ namespace HaldorBounties
             var item = items[index];
 
             int stack = rng.Next(item.MinStack, item.MaxStack + 1);
-            int quality = item.Quality;
-            if (isMiniboss)
-            {
-                stack = Mathf.Max(1, (int)(stack * 1.5f));
-                if (category == RewardCategory.Items && quality < 3)
-                    quality++;
-            }
+            if (stackMult > 1f)
+                stack = Mathf.Max(1, (int)(stack * stackMult));
 
             string displayName = GetDisplayName(item.PrefabName);
             string displayText = stack > 1
@@ -87,7 +86,7 @@ namespace HaldorBounties
                 Category = category,
                 PrefabName = item.PrefabName,
                 Stack = Mathf.Max(1, stack),
-                Quality = quality,
+                Quality = item.Quality,
                 DisplayText = displayText,
             };
         }

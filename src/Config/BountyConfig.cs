@@ -1,278 +1,336 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using BepInEx;
 using Newtonsoft.Json;
 
 namespace HaldorBounties
 {
     public class BountyEntry
     {
-        [JsonProperty("id")] public string Id = "";
-        [JsonProperty("title")] public string Title = "";
-        [JsonProperty("description")] public string Description = "";
-        [JsonProperty("type")] public string Type = "Kill"; // Kill, Gather
-        [JsonProperty("target")] public string Target = "";  // prefab name
-        [JsonProperty("amount")] public int Amount = 1;
-        [JsonProperty("reward")] public int Reward = 50;
-        [JsonProperty("required_boss")] public string RequiredBoss = "";
-        [JsonProperty("spawn_level")] public int SpawnLevel = 0;
-        [JsonProperty("tier")] public string Tier = "Easy"; // Easy, Medium, Hard, Miniboss
+        public string Id = "";
+        public string Title = "";
+        public string Description = "";
+        public string Type = "Kill";
+        public string Target = "";
+        public int Amount = 1;
+        public int Reward = 50;
+        public string RequiredBoss = "";
+        public int SpawnLevel = 0;
+        public string Tier = "Easy";
+        public int Gender = 0;
     }
 
     public static class BountyConfig
     {
-        private static string ConfigFile => Path.Combine(Paths.ConfigPath, "HaldorBounties.bounties.json");
-
         public static List<BountyEntry> Bounties { get; private set; } = new List<BountyEntry>();
+        private static string _configPath;
 
-        public static void Initialize()
+        public static void Initialize(string configPath)
         {
-            if (!File.Exists(ConfigFile))
+            _configPath = configPath;
+
+            if (File.Exists(_configPath))
             {
-                File.WriteAllText(ConfigFile, DefaultJson());
-                HaldorBounties.Log.LogInfo("[BountyConfig] Created default bounties config.");
+                try
+                {
+                    string json = File.ReadAllText(_configPath);
+                    Bounties = JsonConvert.DeserializeObject<List<BountyEntry>>(json);
+                    if (Bounties != null && Bounties.Count > 0)
+                    {
+                        HaldorBounties.Log.LogInfo($"[BountyConfig] Loaded {Bounties.Count} bounties from config.");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    HaldorBounties.Log.LogWarning($"[BountyConfig] Failed to load config: {ex.Message}. Using defaults.");
+                }
             }
 
+            Bounties = BuildDefaultBounties();
+            SaveToFile();
+            HaldorBounties.Log.LogInfo($"[BountyConfig] Generated {Bounties.Count} default bounties and saved to config.");
+        }
+
+        private static void SaveToFile()
+        {
             try
             {
-                Bounties = JsonConvert.DeserializeObject<List<BountyEntry>>(File.ReadAllText(ConfigFile))
-                           ?? new List<BountyEntry>();
+                string json = JsonConvert.SerializeObject(Bounties, Formatting.Indented);
+                string dir = Path.GetDirectoryName(_configPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+                File.WriteAllText(_configPath, json);
             }
             catch (Exception ex)
             {
-                HaldorBounties.Log.LogError($"[BountyConfig] Error loading config: {ex}");
-                Bounties = new List<BountyEntry>();
+                HaldorBounties.Log.LogWarning($"[BountyConfig] Failed to save config: {ex.Message}");
             }
-
-            // Validate
-            int removed = 0;
-            foreach (var b in Bounties.ToList())
-            {
-                if (b == null || string.IsNullOrWhiteSpace(b.Id) || string.IsNullOrWhiteSpace(b.Target)
-                    || (b.Type != "Kill" && b.Type != "Gather"))
-                {
-                    Bounties.Remove(b);
-                    removed++;
-                    continue;
-                }
-                if (b.Amount <= 0) b.Amount = 1;
-                if (b.Reward < 0) b.Reward = 0;
-                if (string.IsNullOrEmpty(b.Tier)) b.Tier = "Easy";
-            }
-
-            if (removed > 0)
-                HaldorBounties.Log.LogWarning($"[BountyConfig] Removed {removed} invalid bounty entries.");
-
-            HaldorBounties.Log.LogInfo($"[BountyConfig] Loaded {Bounties.Count} bounties.");
         }
 
-        private static string DefaultJson() => JsonConvert.SerializeObject(BuildDefaultBounties(), Formatting.Indented);
+        // ═══════════════════════════════════════════════════════
+        //  DEFAULT BOUNTIES — 180 total (30 per biome x 6 biomes)
+        //  10 Kill + 10 Miniboss (5M/5F) + 10 Raid per biome
+        // ═══════════════════════════════════════════════════════
 
         private static List<BountyEntry> BuildDefaultBounties()
         {
             var list = new List<BountyEntry>();
 
-            // ═══════════════════════════════════════════
-            //  EASY TIER — Meadows & Black Forest
-            // ═══════════════════════════════════════════
+            // ── MEADOWS ──
+            AddKillBounties(list, "", "Easy",
+                K("m_greyling_1", "Pest Control", "Greylings have infested the roads. Thin their numbers.", "Greyling", 5, 25),
+                K("m_greyling_2", "Grey Tide", "A swarm of Greylings overwhelms the meadow paths.", "Greyling", 12, 50),
+                K("m_neck_1", "Shoreline Watch", "Necks lurk along the waterline, snapping at travelers.", "Neck", 5, 30),
+                K("m_neck_2", "River Fangs", "Every pond teems with aggressive Necks.", "Neck", 12, 60),
+                K("m_boar_1", "Wild Tusks", "Feral boars trample camps and gore travelers.", "Boar", 8, 40),
+                K("m_boar_2", "Razorback Fury", "Enraged boars charge anything that moves.", "Boar", 15, 75),
+                K("m_deer_1", "The Hunt", "Haldor wants fresh venison. Track down some deer.", "Deer", 5, 30),
+                K("m_deer_2", "Trophy Season", "A proper hunt — bring back a dozen deer.", "Deer", 12, 60),
+                K("m_greyling_3", "Swarm Breaker", "An enormous Greyling colony must be destroyed.", "Greyling", 20, 80),
+                K("m_neck_3", "Jaws of the Shallows", "The Neck population has exploded beyond control.", "Neck", 20, 90));
 
-            // Meadows Kill
-            list.Add(B("greyling_patrol", "Greyling Patrol", "Greylings have been scurrying through the meadows near Haldor's camp, raiding supply caches under cover of darkness. Track them down and put an end to their thieving ways before they grow bolder.", "Kill", "Greyling", 5, 20, "", "Easy"));
-            list.Add(B("greyling_cleanup", "Greyling Cleanup", "The Greyling population has surged this season, and travelers report being harassed along the main paths. Haldor wants them cleared out so his trade routes remain safe for caravans.", "Kill", "Greyling", 10, 35, "", "Easy"));
-            list.Add(B("greyling_infestation", "Greyling Infestation", "An enormous swarm of Greylings has taken root in the meadows, multiplying far beyond their normal numbers. Their nests are spreading and something must be done before they overwhelm the entire region.", "Kill", "Greyling", 20, 65, "", "Easy"));
-            list.Add(B("neck_patrol", "Neck Patrol", "Several Necks have been spotted lurking along the shoreline, snapping at anyone who ventures too close to the water. Clear them out before some poor traveler loses a limb.", "Kill", "Neck", 5, 25, "", "Easy"));
-            list.Add(B("neck_hunt", "Neck Hunter", "The coastline has become dangerous with Necks infesting every pond and stream. Fishermen can no longer work the shores safely, and Haldor needs the waterways cleared for trade.", "Kill", "Neck", 10, 50, "", "Easy"));
-            list.Add(B("neck_massacre", "Neck Massacre", "The Neck population has exploded beyond all reason, choking the waterways and making coastal travel impossible. A massive cull is the only solution to reclaim the shorelines.", "Kill", "Neck", 20, 90, "", "Easy"));
-            list.Add(B("boar_cull", "Boar Cull", "Wild boars have been trampling through camps and destroying food stores. Their numbers have grown too large for the meadows to sustain, and Haldor is offering coin to thin the herd.", "Kill", "Boar", 8, 40, "", "Easy"));
-            list.Add(B("boar_rampage", "Boar Rampage", "Enraged boars are charging at travelers on sight, goring anyone unfortunate enough to cross their path. Something has them riled up, and they need to be put down before more Vikings are injured.", "Kill", "Boar", 15, 70, "", "Easy"));
-            list.Add(B("deer_hunt", "Deer Hunt", "Haldor has a craving for fresh venison and is willing to pay handsomely for it. Head into the meadows, track down some deer, and bring proof of your kills.", "Kill", "Deer", 5, 30, "", "Easy"));
-            list.Add(B("deer_trophy", "Trophy Deer", "Haldor is hosting a feast and needs a substantial supply of game. He wants proof of a proper hunt, so head out and bring back trophies from a dozen deer to earn your reward.", "Kill", "Deer", 12, 55, "", "Easy"));
+            AddMinibossBounties(list, "", "HB_BountyNpc_T1",
+                MB("mb_m_m1", "Meadows Outlaw", "A rogue Viking ambushes travelers at crossroads.", 200, 1),
+                MB("mb_m_f1", "The Scavenger", "A scarred deserter raids supply caches by night.", 220, 2),
+                MB("mb_m_m2", "Crossroad Thief", "A hulking brute blocks the meadow crossroads.", 210, 1),
+                MB("mb_m_f2", "Thornheart", "An exile fights like the creatures she lives among.", 230, 2),
+                MB("mb_m_m3", "Meadow Reaver", "A wild-eyed raider prowls the meadow edges.", 200, 1),
+                MB("mb_m_f3", "Grassland Viper", "She strikes from the tall grass without warning.", 240, 2),
+                MB("mb_m_m4", "The Vagabond", "A wandering fighter challenges anyone he meets.", 210, 1),
+                MB("mb_m_f4", "Dawn Stalker", "She hunts at first light when travelers are careless.", 250, 2),
+                MB("mb_m_m5", "Flint Fang", "Armed with crude but deadly weapons.", 200, 1),
+                MB("mb_m_f5", "The Wayfarer", "A former trader turned bandit. Knows every road.", 230, 2));
 
-            // Meadows Gather
-            list.Add(B("deer_hides_sm", "Hide Delivery", "Haldor's leather stock is running low and he needs deer hides to repair his tent and pack goods for transport. Head out and hunt some deer, then bring back their hides.", "Gather", "DeerHide", 10, 35, "", "Easy"));
-            list.Add(B("deer_hides", "Hide Procurement", "A large shipment of leather goods has been ordered and Haldor is short on raw materials. He needs a substantial supply of deer hides to fulfill the contract before the next trade caravan arrives.", "Gather", "DeerHide", 20, 65, "", "Easy"));
-            list.Add(B("resin_supply", "Resin Supply", "Resin is essential for torches and waterproofing, and Haldor's reserves are nearly depleted. Gather resin from the Greydwarves of the forest and bring it back to replenish his stocks.", "Gather", "Resin", 30, 45, "", "Easy"));
-            list.Add(B("resin_bulk", "Resin Bulk Order", "Haldor has a massive order for resin from a distant settlement that uses it for shipbuilding. He needs fifty units gathered and delivered as quickly as possible to meet the deadline.", "Gather", "Resin", 50, 80, "", "Easy"));
-            list.Add(B("wood_delivery", "Wood Delivery", "Haldor needs quality timber to build new shipping crates for his expanding trade operation. Chop down some trees and deliver a load of wood to his camp.", "Gather", "Wood", 50, 30, "", "Easy"));
-            list.Add(B("wood_bulk", "Lumber Order", "Construction is booming across the settlements and lumber is in high demand. Haldor has promised a large wood shipment, and he's counting on you to fill the order.", "Gather", "Wood", 100, 55, "", "Easy"));
-            list.Add(B("stone_delivery", "Stone Delivery", "Haldor is reinforcing the foundations of his trading post against the increasingly violent raids. He needs a good supply of stone to shore up the walls and defenses.", "Gather", "Stone", 40, 30, "", "Easy"));
-            list.Add(B("flint_gather", "Flint Collection", "Good flint is becoming scarce near the settlements, but it remains essential for crafting tools and arrowheads. Scour the riverbeds and shorelines to gather what Haldor needs.", "Gather", "Flint", 20, 35, "", "Easy"));
-            list.Add(B("leather_scraps", "Leather Scraps", "Haldor's workshop burns through leather scraps faster than he can stockpile them. Hunt boars and other creatures for their hides and bring back the scraps he needs for his crafting.", "Gather", "LeatherScraps", 20, 40, "", "Easy"));
-            list.Add(B("mushroom_forage", "Mushroom Forage", "Haldor fancies himself quite the cook and wants fresh mushrooms for his famous stew. Forage through the meadows and forest floor to gather a healthy supply for his kitchen.", "Gather", "Mushroom", 20, 30, "", "Easy"));
-            list.Add(B("raspberry_pick", "Berry Picking", "Fresh raspberries are a luxury in these harsh lands, and Haldor has developed quite a taste for them. Gather a generous supply from the meadow bushes and bring them back before they spoil.", "Gather", "Raspberries", 25, 25, "", "Easy"));
-            list.Add(B("honey_supply", "Honey Supply", "Sweet honey is worth its weight in gold for brewing mead and treating wounds. Haldor needs you to raid some beehives and bring back this precious golden nectar.", "Gather", "Honey", 5, 50, "", "Easy"));
+            AddRaidBounties(list, "", "HB_BountyNpc_T1",
+                RD("rd_m_1", "Rogue Warband", "A warband of rogues ambushes travelers.", 3, 350),
+                RD("rd_m_2", "Outlaw Uprising", "Desperate outlaws have banded together.", 4, 500),
+                RD("rd_m_3", "Highway Wolves", "Bandits prey on anyone traveling the roads.", 3, 400),
+                RD("rd_m_4", "Camp Raiders", "Raiders burn camps and steal supplies.", 4, 550),
+                RD("rd_m_5", "Meadow Marauders", "A gang of marauders terrorizes the open fields.", 3, 380),
+                RD("rd_m_6", "The Outcasts", "Exiled warriors with nothing left to lose.", 4, 480),
+                RD("rd_m_7", "Greyling Herders", "Outlaws who use Greylings as scouts.", 3, 420),
+                RD("rd_m_8", "Crossroad Gang", "They control every crossroad in the meadows.", 4, 520),
+                RD("rd_m_9", "Dusk Prowlers", "They strike at dusk when visibility drops.", 3, 400),
+                RD("rd_m_10", "The Desperate", "Starving raiders fighting for survival.", 4, 500));
 
-            // Black Forest Kill
-            list.Add(B("greydwarf_scout", "Greydwarf Scouts", "Greydwarf scouts have been spotted creeping along the forest edge, watching the roads and marking travelers. Haldor suspects they're planning a coordinated raid on nearby camps.", "Kill", "Greydwarf", 8, 45, "defeated_eikthyr", "Easy"));
-            list.Add(B("greydwarf_menace", "Greydwarf Menace", "The Black Forest writhes with Greydwarves in numbers not seen for generations. Their constant ambushes have made the forest paths treacherous, and Haldor needs their numbers thinned.", "Kill", "Greydwarf", 15, 75, "defeated_eikthyr", "Easy"));
-            list.Add(B("greydwarf_horde", "Greydwarf Horde", "A massive Greydwarf horde has gathered in the depths of the Black Forest, and their raiding parties grow larger by the day. Haldor is paying top coin for anyone brave enough to break their ranks.", "Kill", "Greydwarf", 25, 110, "defeated_eikthyr", "Easy"));
-            list.Add(B("greydwarf_brute_hunt", "Brute Force", "Greydwarf Brutes have been spotted guarding key passages through the deep forest. These hulking creatures crush anyone who tries to pass, and Haldor needs the routes cleared.", "Kill", "Greydwarf_Elite", 3, 80, "defeated_eikthyr", "Easy"));
-            list.Add(B("greydwarf_brute_purge", "Brute Purge", "Multiple Greydwarf Brutes now roam the Black Forest in packs, smashing camps and destroying bridges. Their reign of destruction must end before the forest becomes completely impassable.", "Kill", "Greydwarf_Elite", 6, 140, "defeated_eikthyr", "Easy"));
-            list.Add(B("greydwarf_shaman_hunt", "Shaman Slayer", "Greydwarf Shamans have been healing wounded warriors faster than they can be cut down. Haldor knows that silencing the Shamans will break the morale of the lesser Greydwarves.", "Kill", "Greydwarf_Shaman", 3, 70, "defeated_eikthyr", "Easy"));
-            list.Add(B("greydwarf_shaman_purge", "Shaman Purge", "A disturbing number of Greydwarf Shamans have emerged from the forest depths, keeping entire warbands alive with their dark magic. Their healing must be stopped at the source.", "Kill", "Greydwarf_Shaman", 6, 120, "defeated_eikthyr", "Easy"));
-            list.Add(B("skeleton_patrol", "Skeleton Patrol", "Skeletons have begun wandering beyond the burial grounds, their bones rattling through the forest at night. Clear them before they stray closer to the settlements.", "Kill", "Skeleton", 8, 55, "defeated_eikthyr", "Easy"));
-            list.Add(B("skeleton_purge", "Skeleton Purge", "The ancient burial chambers are overflowing with restless dead, and skeletons now pour from every crypt and ruin. Descend into the darkness and send them back to their graves.", "Kill", "Skeleton", 15, 95, "defeated_eikthyr", "Easy"));
-            list.Add(B("troll_slayer", "Troll Slayer", "A massive Troll has taken up residence near a vital forest path, smashing everything in sight. Haldor needs someone brave or foolish enough to bring the brute down.", "Kill", "Troll", 1, 80, "defeated_eikthyr", "Easy"));
-            list.Add(B("troll_hunter", "Troll Hunter", "Multiple Trolls have been spotted in the Black Forest, uprooting trees and terrorizing anyone who ventures too deep. Hunt them down and make the forest safe for travelers once more.", "Kill", "Troll", 3, 200, "defeated_eikthyr", "Easy"));
-            list.Add(B("ghost_hunt", "Ghost Hunter", "Restless spirits haunt the burial grounds, their wails echoing through the night and driving away anyone who camps nearby. Put these tormented souls to rest once and for all.", "Kill", "Ghost", 5, 110, "defeated_eikthyr", "Easy"));
+            // ── BLACK FOREST ──
+            AddKillBounties(list, "defeated_eikthyr", "Easy",
+                K("bf_greydwarf_1", "Forest Sentries", "Greydwarf scouts watch the roads.", "Greydwarf", 8, 50),
+                K("bf_greydwarf_2", "Root Rot", "A massive Greydwarf horde gathers deep in the forest.", "Greydwarf", 20, 120),
+                K("bf_brute_1", "Heavy Hitters", "Greydwarf Brutes block key crossings.", "Greydwarf_Elite", 3, 90),
+                K("bf_brute_2", "Timber Crushers", "Packs of Brutes roam the forest.", "Greydwarf_Elite", 6, 160),
+                K("bf_shaman_1", "Hedge Witches", "Shamans heal wounded faster than you can fell them.", "Greydwarf_Shaman", 3, 80),
+                K("bf_shaman_2", "Dark Menders", "Shamans sustain entire warbands with foul magic.", "Greydwarf_Shaman", 6, 140),
+                K("bf_skeleton_1", "Bone Rattlers", "Skeletons wander beyond the burial grounds.", "Skeleton", 8, 60),
+                K("bf_skeleton_2", "Crypt Purge", "Burial chambers overflow with restless dead.", "Skeleton", 15, 110),
+                K("bf_troll_1", "Troll Trouble", "A Troll has claimed a vital forest path.", "Troll", 1, 90),
+                K("bf_ghost_1", "Restless Spirits", "Spirits haunt the old burial sites.", "Ghost", 5, 120));
 
-            // Black Forest Gather
-            list.Add(B("surtling_cores", "Core Collection", "Surtling Cores are essential for powering smelters and portals, and Haldor's supply has run dry. Venture into the burial chambers of the Black Forest and retrieve the cores he needs.", "Gather", "SurtlingCore", 5, 150, "defeated_eikthyr", "Easy"));
-            list.Add(B("thistle_gather", "Thistle Harvest", "Thistle is a rare and valuable ingredient used in potent meads and resistance potions. Haldor has buyers willing to pay well, so gather as much as you can find in the shadowy undergrowth.", "Gather", "Thistle", 15, 90, "defeated_eikthyr", "Easy"));
-            list.Add(B("blueberry_gather", "Blueberry Harvest", "Haldor is experimenting with new potion recipes that call for blueberries as a base ingredient. Search the Black Forest floor for ripe blueberry bushes and bring back a generous harvest.", "Gather", "Blueberries", 25, 40, "defeated_eikthyr", "Easy"));
-            list.Add(B("coal_delivery", "Coal Delivery", "The forges burn day and night, and coal is consumed faster than it can be produced. Haldor needs a fresh supply to keep the smelters running and orders fulfilled.", "Gather", "Coal", 30, 55, "defeated_eikthyr", "Easy"));
-            list.Add(B("copper_ore_gather", "Copper Ore", "Copper is the backbone of bronze crafting, and Haldor's metalworkers are desperate for raw ore. Mine the copper deposits in the Black Forest and haul the ore back to his camp.", "Gather", "CopperOre", 15, 70, "defeated_eikthyr", "Easy"));
-            list.Add(B("tin_ore_gather", "Tin Ore", "Without tin, there can be no bronze, and without bronze, the settlements fall. Haldor needs tin ore gathered from the riverbeds and shorelines of the Black Forest.", "Gather", "TinOre", 15, 65, "defeated_eikthyr", "Easy"));
-            list.Add(B("bone_fragments", "Bone Fragments", "Bone fragments are surprisingly useful for crafting arrowheads and reinforcing tools. Haldor will pay for a good supply, so raid some skeleton nests or hunt creatures for their bones.", "Gather", "BoneFragments", 20, 45, "defeated_eikthyr", "Easy"));
-            list.Add(B("carrot_gather", "Carrot Delivery", "Haldor has taken up cooking as a hobby and insists that fresh carrots are essential for his latest recipe. Harvest some from wild seeds or your own garden and deliver them to his camp.", "Gather", "Carrot", 15, 50, "defeated_eikthyr", "Easy"));
+            AddMinibossBounties(list, "defeated_eikthyr", "HB_BountyNpc_T2",
+                MB("mb_bf_m1", "Forest Brigand", "A cunning brigand preys on miners hauling ore.", 500, 1),
+                MB("mb_bf_f1", "The Iron Maiden", "A shieldmaiden turned bandit queen.", 550, 2),
+                MB("mb_bf_m2", "Deepwood Warden", "He demands tribute from anyone entering his territory.", 580, 1),
+                MB("mb_bf_f2", "Root Witch", "She wears root armor and fights with unnatural ferocity.", 600, 2),
+                MB("mb_bf_m3", "Copper King", "A miner who kills for ore instead of digging.", 520, 1),
+                MB("mb_bf_f3", "Shadow Fern", "She vanishes into the forest after every kill.", 560, 2),
+                MB("mb_bf_m4", "The Troll Tamer", "He fights alongside trained Greydwarves.", 620, 1),
+                MB("mb_bf_f4", "Darkbark", "Covered in bark and moss, she is one with the forest.", 640, 2),
+                MB("mb_bf_m5", "Stone Breaker", "A massive warrior who shatters shields.", 580, 1),
+                MB("mb_bf_f5", "Nightshade", "She coats her blades in poison.", 650, 2));
 
-            // ═══════════════════════════════════════════
-            //  MEDIUM TIER — Swamp & Mountain
-            // ═══════════════════════════════════════════
+            AddRaidBounties(list, "defeated_eikthyr", "HB_BountyNpc_T2",
+                RD("rd_bf_1", "Iron Ambush", "Brigands with iron weapons ambush the forest road.", 3, 750),
+                RD("rd_bf_2", "War Party", "A war party in root armor has fortified the forest.", 4, 1000),
+                RD("rd_bf_3", "Troll-Hide Gang", "Outlaws in troll leather strike without warning.", 3, 850),
+                RD("rd_bf_4", "Crypt Raiders", "They plunder burial chambers and kill witnesses.", 4, 950),
+                RD("rd_bf_5", "Forest Reavers", "Reavers who know every path through the trees.", 3, 780),
+                RD("rd_bf_6", "Bronze Brotherhood", "A brotherhood of deserters armed with bronze.", 4, 900),
+                RD("rd_bf_7", "Timber Wolves", "They ambush loggers and steal their haul.", 3, 800),
+                RD("rd_bf_8", "Surtling Cult", "Outlaws who worship fire and carry surtling cores.", 4, 1050),
+                RD("rd_bf_9", "The Undergrowth", "They hide in the brush and strike from below.", 3, 820),
+                RD("rd_bf_10", "Darkwood Company", "A mercenary company that takes no prisoners.", 4, 1100));
 
-            // Swamp Kill
-            list.Add(B("draugr_patrol", "Draugr Patrol", "The rotting dead shuffle through the swamp mists, their rusted weapons still sharp enough to kill. A small patrol of Draugr has been spotted near the edges, and Haldor wants them cut down.", "Kill", "Draugr", 8, 100, "defeated_gdking", "Medium"));
-            list.Add(B("draugr_purge", "Draugr Purge", "Draugr shamble endlessly through the swamp in growing numbers, their cursed existence sustained by dark forces. Venture deep into the mire and thin their ranks before they spill into neighboring biomes.", "Kill", "Draugr", 15, 160, "defeated_gdking", "Medium"));
-            list.Add(B("draugr_siege", "Draugr Siege", "An army of Draugr has massed near the swamp borders, threatening to overrun nearby settlements. Haldor is paying premium coin for warriors willing to break the siege and scatter the undead host.", "Kill", "Draugr", 25, 240, "defeated_gdking", "Medium"));
-            list.Add(B("draugr_elite_hunt", "Elite Draugr Hunt", "Draugr Elites are the strongest of the undead warriors, wielding ancient weapons with deadly skill. Several have been spotted leading raiding parties, and they must be eliminated.", "Kill", "Draugr_Elite", 3, 150, "defeated_gdking", "Medium"));
-            list.Add(B("draugr_elite_purge", "Elite Draugr Purge", "An alarming number of Draugr Elites have risen from the crypts, each one commanding lesser undead with ruthless efficiency. Destroy their leadership and the rest will crumble.", "Kill", "Draugr_Elite", 6, 270, "defeated_gdking", "Medium"));
-            list.Add(B("blob_cleanup", "Blob Cleanup", "Poisonous Blobs ooze through the swamp, leaving trails of toxic slime that contaminates the water and kills the vegetation. Destroy them before their poison spreads further.", "Kill", "Blob", 8, 100, "defeated_gdking", "Medium"));
-            list.Add(B("blob_infestation", "Blob Infestation", "A massive Blob outbreak has turned entire sections of the swamp into a toxic wasteland. The creatures multiply rapidly and must be exterminated before the contamination becomes permanent.", "Kill", "Blob", 15, 170, "defeated_gdking", "Medium"));
-            list.Add(B("wraith_hunt", "Wraith Hunter", "Wraiths materialize from the swamp fog at nightfall, their chilling touch draining the life from the living. Track these spectral terrors through the darkness and banish them.", "Kill", "Wraith", 3, 180, "defeated_gdking", "Medium"));
-            list.Add(B("wraith_purge", "Wraith Purge", "The swamp nights have become truly deadly as multiple Wraiths now haunt every corner of the marshland. No one dares travel after dark. Banish these spirits and reclaim the night.", "Kill", "Wraith", 5, 280, "defeated_gdking", "Medium"));
-            list.Add(B("leech_extermination", "Leech Extermination", "Giant Leeches infest every body of water in the swamp, making it impossible to wade through safely. Drain the swamp of these bloodsucking parasites before more travelers are dragged under.", "Kill", "Leech", 10, 110, "defeated_gdking", "Medium"));
-            list.Add(B("surtling_hunt", "Surtling Harvest", "Surtlings blaze through the swamp near fire geysers, their flames setting the dead trees alight. Cut them down and their valuable cores can be salvaged from the ashes.", "Kill", "Surtling", 8, 110, "defeated_gdking", "Medium"));
-            list.Add(B("surtling_inferno", "Surtling Inferno", "An abnormal number of Surtlings have gathered near the swamp's fire geysers, creating an inferno that threatens to consume the entire wetland. Extinguish them before the fire spreads.", "Kill", "Surtling", 15, 190, "defeated_gdking", "Medium"));
-            list.Add(B("abomination_slayer", "Abomination Slayer", "A massive Abomination has risen from the muck, a walking horror of twisted roots and rotting wood. This ancient swamp creature must be felled before it destroys everything in its path.", "Kill", "Abomination", 1, 150, "defeated_gdking", "Medium"));
-            list.Add(B("abomination_purge", "Abomination Purge", "Multiple Abominations have awakened from the swamp floor, their enormous forms tearing through the landscape. These walking nightmares must be destroyed before the swamp becomes completely impassable.", "Kill", "Abomination", 3, 350, "defeated_gdking", "Medium"));
+            // ── SWAMP ──
+            AddKillBounties(list, "defeated_gdking", "Medium",
+                K("sw_draugr_1", "Swamp Watch", "Draugr shuffle near the swamp borders.", "Draugr", 8, 120),
+                K("sw_draugr_2", "Dead Tide", "The swamp crawls with Draugr in growing numbers.", "Draugr", 18, 250),
+                K("sw_elite_1", "Grave Knights", "Draugr Elites lead raiding parties.", "Draugr_Elite", 3, 180),
+                K("sw_elite_2", "Wight Purge", "Draugr Elites have risen in alarming numbers.", "Draugr_Elite", 6, 320),
+                K("sw_blob_1", "Toxic Cleanup", "Poisonous Blobs leave trails of toxic slime.", "Blob", 8, 120),
+                K("sw_wraith_1", "Night Terrors", "Wraiths materialize from the swamp fog.", "Wraith", 3, 220),
+                K("sw_leech_1", "Bloodsuckers", "Giant Leeches infest every body of water.", "Leech", 10, 130),
+                K("sw_surtling_1", "Fire Harvest", "Surtlings blaze near the fire geysers.", "Surtling", 8, 130),
+                K("sw_abom_1", "Root Horror", "An Abomination has risen from the muck.", "Abomination", 1, 180),
+                K("sw_abom_2", "Swamp Cleansing", "Multiple Abominations tear through the landscape.", "Abomination", 3, 420));
 
-            // Swamp Gather
-            list.Add(B("iron_scrap_sm", "Iron Scraps", "Iron is the metal of war, and Haldor always needs more. Descend into the sunken crypts of the swamp, brave the Draugr within, and bring back the muddy iron scraps you find.", "Gather", "IronScrap", 10, 120, "defeated_gdking", "Medium"));
-            list.Add(B("iron_scrap_gather", "Iron Procurement", "Haldor has a massive ironworking order that requires far more raw material than he has on hand. He needs iron scrap from the swamp crypts, and he's willing to pay handsomely for a large haul.", "Gather", "IronScrap", 20, 220, "defeated_gdking", "Medium"));
-            list.Add(B("bloodbag_gather", "Bloodbag Collection", "The bloated bloodbags carried by Leeches contain a potent alchemical reagent that fetches a high price. Haldor has a buyer lined up, so collect what you can from slain Leeches.", "Gather", "Bloodbag", 10, 110, "defeated_gdking", "Medium"));
-            list.Add(B("entrails_gather", "Entrails Supply", "Haldor claims he needs entrails for making sausages, though he refuses to discuss the recipe in detail. Don't ask questions, just bring him what he needs from the Draugr corpses.", "Gather", "Entrails", 15, 100, "defeated_gdking", "Medium"));
-            list.Add(B("guck_gather", "Guck Collection", "The strange glowing guck that grows on swamp trees has proven valuable for crafting and alchemy. Haldor wants a supply collected, though harvesting it from the towering trees is no easy task.", "Gather", "Guck", 10, 130, "defeated_gdking", "Medium"));
-            list.Add(B("turnip_gather", "Turnip Delivery", "Haldor has developed a taste for turnip stew and insists that swamp-grown turnips have the best flavor. Harvest some from the wild patches in the marshland and bring them back.", "Gather", "Turnip", 15, 90, "defeated_gdking", "Medium"));
-            list.Add(B("ancient_bark", "Ancient Bark", "The bark of ancient trees in the swamp is remarkably durable and sought after for shipbuilding and fine woodwork. Haldor has a commission that requires a good supply of this rare material.", "Gather", "ElderBark", 20, 100, "defeated_gdking", "Medium"));
+            AddMinibossBounties(list, "defeated_gdking", "HB_BountyNpc_T3",
+                MB("mb_sw_m1", "Bog Stalker", "Adapted to the mire, he fights with ruthless efficiency.", 1000, 1),
+                MB("mb_sw_f1", "The Drowned Queen", "Even the Draugr give her a wide berth.", 1100, 2),
+                MB("mb_sw_m2", "Crypt Breaker", "His silver blade drips with undead ichor.", 1200, 1),
+                MB("mb_sw_f2", "Mire Witch", "She commands the fog itself as a weapon.", 1150, 2),
+                MB("mb_sw_m3", "Rot Walker", "He wades through poison without flinching.", 1050, 1),
+                MB("mb_sw_f3", "Iron Widow", "She lost her shield-brothers and seeks vengeance.", 1250, 2),
+                MB("mb_sw_m4", "The Undertaker", "He buries his victims in the mud.", 1100, 1),
+                MB("mb_sw_f4", "Swamp Siren", "Her voice lures travelers into the deep mire.", 1300, 2),
+                MB("mb_sw_m5", "Leech Lord", "The bloodsuckers seem to obey his command.", 1150, 1),
+                MB("mb_sw_f5", "Guck Weaver", "She crafts deadly traps from swamp materials.", 1200, 2));
 
-            // Mountain Kill
-            list.Add(B("wolf_patrol", "Wolf Patrol", "A small wolf pack has established territory on the lower mountain slopes, attacking anyone who attempts the ascent. Clear them from the trails so travelers can pass safely.", "Kill", "Wolf", 5, 130, "defeated_bonemass", "Medium"));
-            list.Add(B("wolf_hunt", "Wolf Cull", "Mountain wolf packs have grown dangerously large, emboldened by the harsh winter. Their howls echo through the passes at night, and their attacks grow more frequent with each passing day.", "Kill", "Wolf", 10, 220, "defeated_bonemass", "Medium"));
-            list.Add(B("wolf_massacre", "Wolf Massacre", "The mountain is completely overrun with wolves, their packs numbering in the dozens. Every trail and clearing swarms with snarling predators. A massive cull is the only way to restore order.", "Kill", "Wolf", 18, 340, "defeated_bonemass", "Medium"));
-            list.Add(B("drake_hunt", "Drake Slayer", "Frost Drakes circle the mountain peaks, swooping down to rain shards of ice on anyone below. Their frozen breath can kill in seconds. Bring them down from the skies.", "Kill", "Hatchling", 5, 160, "defeated_bonemass", "Medium"));
-            list.Add(B("drake_purge", "Drake Purge", "The mountain skies are thick with Frost Drakes, their icy breath making the peaks even more treacherous than usual. Ground every last one of them before the mountain becomes unreachable.", "Kill", "Hatchling", 10, 280, "defeated_bonemass", "Medium"));
-            list.Add(B("golem_breaker", "Golem Breaker", "A Stone Golem stands guard at a mountain pass, its massive form blocking all passage. These ancient constructs are nearly indestructible, but Haldor believes a skilled warrior can shatter it.", "Kill", "StoneGolem", 1, 170, "defeated_bonemass", "Medium"));
-            list.Add(B("golem_crusher", "Golem Crusher", "Multiple Stone Golems now patrol the mountain paths, crushing boulders and anything else in their way. Their presence has completely cut off trade routes through the peaks.", "Kill", "StoneGolem", 3, 350, "defeated_bonemass", "Medium"));
-            list.Add(B("fenring_hunt", "Fenring Hunt", "Fenrings emerge under the cover of darkness, their savage howls splitting the mountain silence. These werewolf-like creatures are deadlier than any normal wolf. Hunt them at night when they appear.", "Kill", "Fenring", 3, 280, "defeated_bonemass", "Medium"));
-            list.Add(B("ulv_hunt", "Ulv Extermination", "Ulvs lurk in mountain caves, their pale forms nearly invisible against the snow. These ghostly predators ambush from the shadows. Root them out of their dens and destroy them.", "Kill", "Ulv", 5, 240, "defeated_bonemass", "Medium"));
-            list.Add(B("bat_swat", "Bat Swat", "Swarms of bats pour from the mountain caves at dusk, their sheer numbers darkening the sky. They're a menace to anyone mining or exploring the caverns, and they must be dealt with.", "Kill", "Bat", 10, 130, "defeated_bonemass", "Medium"));
+            AddRaidBounties(list, "defeated_gdking", "HB_BountyNpc_T3",
+                RD("rd_sw_1", "Silver Marauders", "Silver-clad marauders hide in the mist.", 3, 1500),
+                RD("rd_sw_2", "Drowned Company", "Battle-hardened and relentless.", 4, 2000),
+                RD("rd_sw_3", "Mire Reavers", "They use the fog to devastating effect.", 3, 1800),
+                RD("rd_sw_4", "Crypt Plunderers", "Tomb raiders who kill on sight.", 4, 1900),
+                RD("rd_sw_5", "The Rotting Hand", "Warriors who have embraced the swamp's decay.", 3, 1600),
+                RD("rd_sw_6", "Bog Runners", "Fast and lethal, they strike from the muck.", 4, 2100),
+                RD("rd_sw_7", "Iron Tide", "An iron-clad force pushing through the swamp.", 3, 1700),
+                RD("rd_sw_8", "The Sunken", "They emerge from underwater to attack.", 4, 2200),
+                RD("rd_sw_9", "Wraith Pact", "Warriors who have made pacts with spirits.", 3, 1650),
+                RD("rd_sw_10", "Swamp Wolves", "A wolfpack of fighters hunting in formation.", 4, 2300));
 
-            // Mountain Gather
-            list.Add(B("silver_ore_sm", "Silver Nuggets", "Silver ore lies buried deep beneath the mountain snow, detectable only with the Wishbone's resonance. Haldor needs a small supply for a custom jewelry order from a wealthy client.", "Gather", "SilverOre", 8, 150, "defeated_bonemass", "Medium"));
-            list.Add(B("silver_ore_gather", "Silver Procurement", "Haldor has secured a lucrative deal with a distant buyer who wants a large quantity of raw silver. Mine the mountain veins and haul the ore back to claim a generous reward.", "Gather", "SilverOre", 15, 270, "defeated_bonemass", "Medium"));
-            list.Add(B("freeze_gland_gather", "Freeze Gland Supply", "The freeze glands harvested from slain Frost Drakes contain a potent cryogenic fluid prized by alchemists. Haldor's potion makers need a fresh supply for their frost resistance brews.", "Gather", "FreezeGland", 10, 180, "defeated_bonemass", "Medium"));
-            list.Add(B("obsidian_gather", "Obsidian Collection", "Obsidian is prized for crafting razor-sharp arrowheads and decorative items. Haldor needs a supply gathered from the exposed mountain rock faces where the volcanic glass gleams in the cold light.", "Gather", "Obsidian", 15, 140, "defeated_bonemass", "Medium"));
-            list.Add(B("wolf_pelt_gather", "Wolf Pelt Supply", "Wolf pelts are in high demand for warm cloaks and bedding as winter approaches. Haldor's fur traders need quality pelts, so hunt the mountain wolves and bring back their hides.", "Gather", "WolfPelt", 8, 160, "defeated_bonemass", "Medium"));
-            list.Add(B("onion_gather", "Onion Delivery", "Haldor insists that mountain-grown onions are superior for his cooking, claiming the cold altitude gives them a sharper flavor. Harvest some from the mountain gardens and deliver them.", "Gather", "Onion", 15, 100, "defeated_bonemass", "Medium"));
+            // ── MOUNTAIN ──
+            AddKillBounties(list, "defeated_bonemass", "Medium",
+                K("mt_wolf_1", "Frostfang Pack", "A wolf pack attacks anyone climbing.", "Wolf", 5, 150),
+                K("mt_wolf_2", "Alpha Cull", "The mountain is overrun with wolves.", "Wolf", 15, 350),
+                K("mt_drake_1", "Ice Breakers", "Frost Drakes rain ice on anyone below.", "Hatchling", 5, 190),
+                K("mt_drake_2", "Frozen Skies", "The skies are thick with Drakes.", "Hatchling", 10, 340),
+                K("mt_golem_1", "Stone Cracker", "A Stone Golem blocks the pass.", "StoneGolem", 1, 200),
+                K("mt_golem_2", "Avalanche", "Multiple Golems crush everything in their path.", "StoneGolem", 3, 420),
+                K("mt_fenring_1", "Moonlit Hunt", "Fenrings emerge under cover of darkness.", "Fenring", 3, 340),
+                K("mt_ulv_1", "Ghost Wolves", "Ulvs lurk in mountain caves.", "Ulv", 5, 280),
+                K("mt_bat_1", "Cave Cleaners", "Swarms of bats pour from mountain caves.", "Bat", 10, 150),
+                K("mt_wolf_3", "Howling Peaks", "Wolf packs grow dangerously large.", "Wolf", 10, 260));
 
-            // ═══════════════════════════════════════════
-            //  HARD TIER — Plains, Mistlands, Ashlands
-            // ═══════════════════════════════════════════
+            AddMinibossBounties(list, "defeated_bonemass", "HB_BountyNpc_T4",
+                MB("mb_mt_m1", "Frostbitten", "His silver weapons have claimed many lives.", 2000, 1),
+                MB("mb_mt_f1", "Summit Huntress", "She commands the wolves of the peaks.", 2200, 2),
+                MB("mb_mt_m2", "Blizzard Born", "He fights through storms without flinching.", 2100, 1),
+                MB("mb_mt_f2", "Avalanche", "She has crushed more challengers than any golem.", 2400, 2),
+                MB("mb_mt_m3", "Frost Warden", "Guardian of the high passes.", 2050, 1),
+                MB("mb_mt_f3", "Ice Whisper", "She moves silently through the snow.", 2300, 2),
+                MB("mb_mt_m4", "Peak Breaker", "He breaks through any defense with brute force.", 2500, 1),
+                MB("mb_mt_f4", "Crystal Edge", "Her crystal-tipped weapons cut through armor.", 2600, 2),
+                MB("mb_mt_m5", "The Cold One", "He feels nothing — not cold, not pain.", 2150, 1),
+                MB("mb_mt_f5", "Storm Caller", "She fights hardest during blizzards.", 2350, 2));
 
-            // Plains Kill
-            list.Add(B("fuling_scout", "Fuling Scouts", "Fuling scouts probe the edges of the plains, their beady eyes watching for weakness. They report back to their villages, and raids follow shortly after. Silence the scouts before they can report.", "Kill", "Goblin", 8, 200, "defeated_dragon", "Hard"));
-            list.Add(B("fuling_hunt", "Fuling Raid", "A Fuling raiding party has been terrorizing the plains, burning camps and stealing supplies. Haldor wants them intercepted and destroyed before they can strike again.", "Kill", "Goblin", 15, 320, "defeated_dragon", "Hard"));
-            list.Add(B("fuling_invasion", "Fuling Invasion", "A massive Fuling invasion force marches across the plains, their war drums echoing for miles. This is no mere raid. Rally your strength and shatter their army before they reach the settlements.", "Kill", "Goblin", 25, 480, "defeated_dragon", "Hard"));
-            list.Add(B("fuling_berserker_hunt", "Berserker Challenge", "Fuling Berserkers are among the deadliest warriors in all the realms, their massive clubs crushing armor like parchment. Haldor dares you to face these monsters and prove your worth.", "Kill", "GoblinBrute", 2, 300, "defeated_dragon", "Hard"));
-            list.Add(B("fuling_berserker_purge", "Berserker Rampage", "Multiple Fuling Berserkers have gone on a rampage across the plains, leaving a trail of destruction that stretches for miles. They must be stopped before nothing remains standing.", "Kill", "GoblinBrute", 4, 520, "defeated_dragon", "Hard"));
-            list.Add(B("fuling_shaman_hunt", "Shaman Purge", "Fuling Shamans channel dark fire magic, immolating anyone foolish enough to approach their totems. Destroy these spellcasters before they can summon more devastating rituals.", "Kill", "GoblinShaman", 3, 250, "defeated_dragon", "Hard"));
-            list.Add(B("fuling_shaman_coven", "Shaman Coven", "A coven of Fuling Shamans has gathered at a sacred site, performing rituals that darken the sky with flame. Their combined power grows with each passing day. Disrupt the coven now.", "Kill", "GoblinShaman", 6, 430, "defeated_dragon", "Hard"));
-            list.Add(B("deathsquito_swat", "Deathsquito Swat", "Deathsquitos dart across the plains with terrifying speed, their needle-like proboscis punching through armor with a single strike. Swat these lethal insects before more Vikings fall to them.", "Kill", "Deathsquito", 10, 220, "defeated_dragon", "Hard"));
-            list.Add(B("deathsquito_plague", "Deathsquito Plague", "An overwhelming swarm of Deathsquitos has descended upon the plains, their buzzing filling the air like a plague of razors. No one can travel the open ground safely until the swarm is broken.", "Kill", "Deathsquito", 20, 400, "defeated_dragon", "Hard"));
-            list.Add(B("lox_hunt", "Lox Hunt", "Lox are enormous beasts that trample everything beneath their massive hooves. Dangerous to approach, but their meat and pelts are valuable. Haldor is paying well for those brave enough.", "Kill", "Lox", 2, 260, "defeated_dragon", "Hard"));
-            list.Add(B("lox_stampede", "Lox Stampede", "A herd of enraged Lox stampedes across the plains, flattening camps and crushing anything in their path. The ground shakes with their fury, and someone must put them down.", "Kill", "Lox", 5, 500, "defeated_dragon", "Hard"));
-            list.Add(B("growth_slayer", "Growth Slayer", "Tar Growths ooze from the black pits, spreading corruption wherever they crawl. Their toxic tar contaminates the soil and kills all plant life. Destroy them before the blight spreads further.", "Kill", "BlobTar", 5, 260, "defeated_dragon", "Hard"));
+            AddRaidBounties(list, "defeated_bonemass", "HB_BountyNpc_T4",
+                RD("rd_mt_1", "Frost Reavers", "Black metal glints in the cold air.", 3, 3000),
+                RD("rd_mt_2", "Peak Warhost", "They challenge anyone who dares ascend.", 4, 4200),
+                RD("rd_mt_3", "Blizzard Fangs", "They strike during mountain storms.", 3, 3500),
+                RD("rd_mt_4", "Summit Guard", "Elite warriors who hold the highest peaks.", 4, 4000),
+                RD("rd_mt_5", "Silver Brotherhood", "United by silver and blood oaths.", 3, 3200),
+                RD("rd_mt_6", "Wolf Pack", "Berserkers who fight like wolves.", 4, 4500),
+                RD("rd_mt_7", "The Frozen", "Warriors who endure any cold.", 3, 3300),
+                RD("rd_mt_8", "Crystal Guard", "Armed with crystal weapons.", 4, 4100),
+                RD("rd_mt_9", "Ice Reavers", "Fast and lethal in the snow.", 3, 3400),
+                RD("rd_mt_10", "High King's Guard", "The finest warriors of the peaks.", 4, 4800));
 
-            // Plains Gather
-            list.Add(B("barley_gather", "Barley Stockpile", "Haldor is planning to brew his finest mead yet, and for that he needs quality barley from the plains. Harvest the golden fields and bring back enough for a proper brewing operation.", "Gather", "Barley", 20, 220, "defeated_dragon", "Hard"));
-            list.Add(B("barley_bulk", "Barley Bulk Order", "A massive barley shipment has been ordered by settlements across the realm for bread and mead production. The plains fields must be harvested thoroughly to fill this enormous order.", "Gather", "Barley", 40, 400, "defeated_dragon", "Hard"));
-            list.Add(B("needle_gather", "Needle Collection", "Deathsquito needles are prized for their incredible sharpness, making them ideal for crafting the finest arrows. Slay the insects and carefully harvest their needles for Haldor's weaponsmiths.", "Gather", "Needle", 10, 200, "defeated_dragon", "Hard"));
-            list.Add(B("lox_meat_gather", "Lox Meat Supply", "Lox meat is considered a delicacy among the Vikings, its rich flavor unmatched by any other game. Haldor's kitchen demands a fresh supply, so hunt the great beasts and butcher their meat.", "Gather", "LoxMeat", 8, 180, "defeated_dragon", "Hard"));
-            list.Add(B("black_metal_gather", "Black Metal Scrap", "Black metal is forged in Fuling villages and possesses extraordinary strength. Raid their settlements, scavenge their forges, and bring back the dark metal scraps that Haldor's smiths covet.", "Gather", "BlackMetalScrap", 15, 350, "defeated_dragon", "Hard"));
-            list.Add(B("flax_gather", "Flax Delivery", "Flax from the plains is spun into linen thread, essential for padded armor and fine clothing. Haldor needs a large supply harvested from Fuling farms and delivered to his workshop.", "Gather", "Flax", 20, 250, "defeated_dragon", "Hard"));
+            // ── PLAINS ──
+            AddKillBounties(list, "defeated_dragon", "Hard",
+                K("pl_fuling_1", "Goblin Outriders", "Fuling scouts probe the edges of the plains.", "Goblin", 8, 250),
+                K("pl_fuling_2", "Horde Breaker", "A massive Fuling invasion force marches.", "Goblin", 25, 600),
+                K("pl_brute_1", "Berserker's Challenge", "Fuling Berserkers crush armor like parchment.", "GoblinBrute", 2, 380),
+                K("pl_brute_2", "Wrecking Crew", "Multiple Berserkers on a rampage.", "GoblinBrute", 4, 650),
+                K("pl_shaman_1", "Flame Snuffers", "Fuling Shamans channel dark fire magic.", "GoblinShaman", 3, 300),
+                K("pl_squito_1", "Needle Storm", "Deathsquitos punch through armor.", "Deathsquito", 10, 270),
+                K("pl_squito_2", "Plague of Needles", "An overwhelming swarm descends.", "Deathsquito", 20, 500),
+                K("pl_lox_1", "Beast Slayer", "Lox trample everything beneath their hooves.", "Lox", 2, 320),
+                K("pl_lox_2", "Thunder Hooves", "A herd of enraged Lox stampedes.", "Lox", 5, 620),
+                K("pl_tar_1", "Tar Blight", "Tar Growths spread corruption from black pits.", "BlobTar", 5, 320));
 
-            // Mistlands Kill
-            list.Add(B("seeker_hunt", "Seeker Hunt", "Seekers skitter through the eternal mists, their insectoid forms blending with the darkness until they strike. These creatures infest every ruin and clearing. Hunt them and reclaim the Mistlands.", "Kill", "Seeker", 8, 350, "defeated_goblinking", "Hard"));
-            list.Add(B("seeker_purge", "Seeker Extermination", "The Seeker population has grown to epidemic proportions, their hives spreading through every structure in the Mistlands. A full-scale extermination is needed to make any headway into this cursed realm.", "Kill", "Seeker", 15, 550, "defeated_goblinking", "Hard"));
-            list.Add(B("seeker_brute_hunt", "Seeker Brute Slayer", "Seeker Brutes are the armored guardians of the deepest hives, their chitinous shells nearly impervious to normal weapons. Face these monstrosities and prove that nothing in the Mistlands is unkillable.", "Kill", "SeekerBrute", 2, 400, "defeated_goblinking", "Hard"));
-            list.Add(B("seeker_brute_purge", "Seeker Brute Purge", "Multiple Seeker Brutes have fortified the largest hives, creating an impenetrable defense that blocks all exploration of the Mistlands. Their fortress of chitin must be broken.", "Kill", "SeekerBrute", 4, 700, "defeated_goblinking", "Hard"));
-            list.Add(B("tick_extermination", "Tick Extermination", "Ticks drop from the misty canopy without warning, latching onto their victims and draining them dry. The Mistlands crawl with these parasites, and they must be purged.", "Kill", "Tick", 10, 300, "defeated_goblinking", "Hard"));
-            list.Add(B("tick_plague", "Tick Plague", "A plague of Ticks infests every corner of the Mistlands, dropping in clusters from above and overwhelming even well-armored warriors. Their numbers must be decimated.", "Kill", "Tick", 20, 500, "defeated_goblinking", "Hard"));
-            list.Add(B("gjall_hunt", "Gjall Hunter", "A Gjall drifts through the mists like a living nightmare, raining explosive projectiles from above. These floating horrors must be brought down before they destroy everything beneath them.", "Kill", "Gjall", 1, 380, "defeated_goblinking", "Hard"));
-            list.Add(B("gjall_purge", "Gjall Purge", "Multiple Gjall now patrol the Mistlands skies, their bombardments turning the landscape into a cratered wasteland. No one can explore safely until these aerial terrors are eliminated.", "Kill", "Gjall", 3, 750, "defeated_goblinking", "Hard"));
-            list.Add(B("dvergr_rogue_hunt", "Rogue Dvergr", "Some Dvergr have abandoned their neutral stance and turned hostile, attacking anyone who approaches their outposts. Haldor once traded with them, and he takes their betrayal personally.", "Kill", "Dverger", 5, 450, "defeated_goblinking", "Hard"));
+            AddMinibossBounties(list, "defeated_dragon", "HB_BountyNpc_T5",
+                MB("mb_pl_m1", "Golden Executioner", "Carapace armor makes even Fulings flee.", 3200, 1),
+                MB("mb_pl_f1", "The Conqueress", "Her blade has carved through villages.", 3600, 2),
+                MB("mb_pl_m2", "Dusk Reaper", "He strikes at twilight. None have seen his face.", 3800, 1),
+                MB("mb_pl_f2", "Plains Valkyrie", "She fights as if chosen by Odin himself.", 4000, 2),
+                MB("mb_pl_m3", "Sand Viper", "He strikes from the tall grass.", 3400, 1),
+                MB("mb_pl_f3", "Barley Queen", "She controls the farmlands through fear.", 3700, 2),
+                MB("mb_pl_m4", "Lox Rider", "He charges on foot but fights like a beast.", 4200, 1),
+                MB("mb_pl_f4", "Needle Dancer", "She dodges like a Deathsquito.", 3900, 2),
+                MB("mb_pl_m5", "The Warlord", "A conqueror of terrible reputation.", 4500, 1),
+                MB("mb_pl_f5", "Golden Fury", "Fury incarnate on the golden fields.", 4100, 2));
 
-            // Mistlands Gather
-            list.Add(B("sap_gather", "Yggdrasil Sap", "The sap of Yggdrasil's roots is a mystical substance of immense value, glowing with the energy of the World Tree itself. Haldor has alchemists willing to pay a fortune for even a small supply.", "Gather", "Sap", 10, 400, "defeated_goblinking", "Hard"));
-            list.Add(B("sap_bulk", "Sap Bulk Order", "A massive order for Yggdrasil sap has come in from Haldor's most exclusive clients. The ancient roots must be tapped carefully, and the precious golden sap collected in large quantities.", "Gather", "Sap", 20, 700, "defeated_goblinking", "Hard"));
-            list.Add(B("softtissue_gather", "Soft Tissue Collection", "The soft tissue harvested from slain Seekers contains unique biological compounds that alchemists prize for their transformative properties. Gather what you can from the insectoid corpses.", "Gather", "Softtissue", 10, 350, "defeated_goblinking", "Hard"));
+            AddRaidBounties(list, "defeated_dragon", "HB_BountyNpc_T5",
+                RD("rd_pl_1", "Carapace Raiders", "Exotic weapons and coordinated tactics.", 4, 6000),
+                RD("rd_pl_2", "Conqueror's Guard", "The deadliest warriors in the realm.", 5, 8500),
+                RD("rd_pl_3", "Dusk Riders", "They sweep the plains at sunset.", 4, 7000),
+                RD("rd_pl_4", "Golden Host", "An army on the golden fields.", 5, 9000),
+                RD("rd_pl_5", "Fuling Slayers", "They hunt Fulings for sport.", 4, 6500),
+                RD("rd_pl_6", "The Vanguard", "First into battle, last to retreat.", 5, 8000),
+                RD("rd_pl_7", "Plains Wolves", "Fast and lethal across open ground.", 4, 7500),
+                RD("rd_pl_8", "Iron Harvest", "They reap what others have sown.", 5, 9500),
+                RD("rd_pl_9", "The Bloodied", "Veterans of a hundred battles.", 4, 7200),
+                RD("rd_pl_10", "Sand Storm", "They move like wind across the plains.", 5, 10000));
 
-            // Ashlands Kill
-            list.Add(B("charred_patrol", "Charred Patrol", "Charred warriors stand eternal vigil at the borders of the Ashlands, their blackened forms wreathed in smoldering embers. They attack anything living that enters their scorched domain.", "Kill", "Charred_Melee", 6, 380, "defeated_queen", "Hard"));
-            list.Add(B("charred_purge", "Charred Purge", "Legions of Charred warriors guard the Ashlands in disciplined formations, their burned flesh immune to pain. Break through their ranks to establish a foothold in this hellish landscape.", "Kill", "Charred_Melee", 12, 560, "defeated_queen", "Hard"));
-            list.Add(B("charred_siege", "Charred Siege", "Massive Charred forces have assembled at the Ashlands border, blocking all passage into the volcanic wastes. This army of the burned must be shattered to open the way forward.", "Kill", "Charred_Melee", 20, 780, "defeated_queen", "Hard"));
-            list.Add(B("morgen_hunt", "Morgen Slayer", "Morgen lurk in the volcanic wastes of the Ashlands, their shadowy forms striking from clouds of ash and smoke. These terrifying creatures are among the deadliest in all the realms.", "Kill", "Morgen", 3, 450, "defeated_queen", "Hard"));
-            list.Add(B("morgen_purge", "Morgen Purge", "Multiple Morgen stalk the Ashlands, their presence turning the already dangerous landscape into a death trap. Every shadow could hide one of these nightmarish predators.", "Kill", "Morgen", 6, 750, "defeated_queen", "Hard"));
-            list.Add(B("fallen_valkyrie_hunt", "Fallen Valkyrie", "Fallen Valkyries have been corrupted by the Ashlands' dark power, their once-noble wings now trailing ash and flame. They are a disgrace to Valhalla and must be put to rest.", "Kill", "Fallen_Valkyrie", 2, 550, "defeated_queen", "Hard"));
-            list.Add(B("fallen_valkyrie_purge", "Valkyrie Purge", "Multiple Fallen Valkyries patrol the skies above the Ashlands, their corrupted battle cries echoing across the volcanic wastes. Free their tortured souls from this unholy existence.", "Kill", "Fallen_Valkyrie", 4, 800, "defeated_queen", "Hard"));
-            list.Add(B("asksvinn_hunt", "Asksvinn Tamer", "Wild Asksvinn charge through the ashfields with reckless abandon, their fiery hooves scorching the ground beneath them. These flame-touched beasts are as dangerous as they are beautiful.", "Kill", "Asksvinn", 3, 400, "defeated_queen", "Hard"));
-            list.Add(B("asksvinn_stampede", "Asksvinn Stampede", "A massive herd of Asksvinn rampages through the volcanic wastes, their thundering hooves and fiery manes creating a spectacle of destruction. Stop the stampede before it reaches the settlements.", "Kill", "Asksvinn", 6, 650, "defeated_queen", "Hard"));
-            list.Add(B("volture_hunt", "Volture Hunt", "Voltures circle the Ashlands skies on leathery wings, diving to snatch up anything they can carry. Their razor talons and scorching breath make them formidable aerial predators.", "Kill", "Volture", 3, 380, "defeated_queen", "Hard"));
-            list.Add(B("volture_flock", "Volture Flock", "A massive flock of Voltures has claimed the Ashlands airspace, darkening the sky with their numbers. Their constant aerial attacks make ground travel nearly impossible.", "Kill", "Volture", 8, 620, "defeated_queen", "Hard"));
+            // ── MISTLANDS ──
+            AddKillBounties(list, "defeated_goblinking", "Hard",
+                K("ml_seeker_1", "Hive Clearance", "Seekers strike from the darkness.", "Seeker", 8, 420),
+                K("ml_seeker_2", "Infestation", "Seeker hives spread through every ruin.", "Seeker", 15, 680),
+                K("ml_brute_1", "Shell Cracker", "Seeker Brutes guard the deepest hives.", "SeekerBrute", 2, 500),
+                K("ml_brute_2", "Chitin Siege", "Seeker Brutes block all exploration.", "SeekerBrute", 4, 880),
+                K("ml_tick_1", "Bloodtick Purge", "Ticks drop from the canopy without warning.", "Tick", 10, 360),
+                K("ml_tick_2", "Canopy Scourge", "A plague of Ticks overwhelms warriors.", "Tick", 20, 620),
+                K("ml_gjall_1", "Sky Terror", "A Gjall rains explosive projectiles.", "Gjall", 1, 460),
+                K("ml_gjall_2", "Bombardment", "Multiple Gjall crater the landscape.", "Gjall", 3, 920),
+                K("ml_dvergr_1", "Rogue Dvergr", "Some Dvergr have turned hostile.", "Dverger", 5, 540),
+                K("ml_seeker_3", "Deep Hive", "The largest hive must be destroyed.", "Seeker", 20, 800));
 
-            // Ashlands Gather
-            list.Add(B("flametal_gather", "Flametal Ore", "Flametal is the rarest and most powerful metal known to exist, forged in the heart of volcanic vents. Mining it is extraordinarily dangerous, but Haldor's smiths need it for their finest work.", "Gather", "FlametalOreNew", 5, 500, "defeated_queen", "Hard"));
-            list.Add(B("flametal_bulk", "Flametal Bulk", "A massive flametal order has come in from Haldor's most powerful clients. The volcanic forges must be worked around the clock, and every scrap of this precious ore must be collected.", "Gather", "FlametalOreNew", 10, 800, "defeated_queen", "Hard"));
+            AddMinibossBounties(list, "defeated_goblinking", "HB_BountyNpc_T6",
+                MB("mb_ml_m1", "Phantom of the Mist", "Even the Seekers fear him.", 5000, 1),
+                MB("mb_ml_f1", "The Ashborne", "The most dangerous bounty ever posted.", 5500, 2),
+                MB("mb_ml_m2", "Eitr Walker", "His weapons hum with raw eitr.", 5800, 1),
+                MB("mb_ml_f2", "Voidwalker", "She wears armor no smith has ever forged.", 6200, 2),
+                MB("mb_ml_m3", "Mist Reaver", "He strikes from the fog and vanishes.", 5200, 1),
+                MB("mb_ml_f3", "Spider Queen", "She moves like a Seeker but thinks like a Viking.", 6000, 2),
+                MB("mb_ml_m4", "The Dverger", "A Dvergr-trained warrior with their weapons.", 5600, 1),
+                MB("mb_ml_f4", "Chitin Empress", "Carapace armor fused with eitr magic.", 6500, 2),
+                MB("mb_ml_m5", "Shadow Blade", "His blade cuts through darkness itself.", 5400, 1),
+                MB("mb_ml_f5", "Mistwalker", "She has walked deeper into the mist than anyone.", 6800, 2));
 
-            // ═══════════════════════════════════════════
-            //  MINIBOSS TIER — Starred spawn bounties
-            // ═══════════════════════════════════════════
-
-            // Meadows Miniboss (no boss gate)
-            list.Add(BS("raging_boar", "Raging Boar", "A two-starred Boar of unusual size has been terrorizing the meadows, goring livestock and charging at anyone who strays too close. Its tusks are as long as daggers and its temper is legendary among the settlers.", "Boar", 1, 100, "", 3));
-            list.Add(BS("ancient_neck", "Ancient Neck", "A two-starred Neck of monstrous proportions lurks in a pond near the meadow settlements. This ancient creature has dragged several fishermen beneath the surface, and Haldor wants it dealt with immediately.", "Neck", 1, 100, "", 3));
-            list.Add(BS("greyling_alpha", "Greyling Alpha", "A three-starred Greyling has emerged from the forest edge, rallying its lesser kin into organized raids on nearby camps. For a Greyling, it shows disturbing cunning and must be eliminated before it causes more damage.", "Greyling", 1, 80, "", 4));
-            list.Add(BS("great_deer", "Great Deer", "A two-starred Deer of extraordinary size roams the meadows, easily outrunning hunters and trampling anyone foolish enough to corner it. Haldor has offered a bounty to anyone who can bring this magnificent beast down.", "Deer", 1, 120, "", 3));
-
-            // Black Forest Miniboss
-            list.Add(BS("champion_troll", "Champion Troll", "A monstrous three-starred Troll has been sighted deep in the Black Forest, tearing through trees and boulders alike. This beast is far larger and more dangerous than any normal Troll. Haldor wants it dead and is paying accordingly.", "Troll", 1, 500, "defeated_eikthyr", 4));
-            list.Add(BS("champion_brute", "Champion Brute", "A two-starred Greydwarf Brute has claimed a section of the Black Forest as its own territory, crushing any who dare enter. The creature's bark-like hide is thick as iron, and its fists hit like falling trees.", "Greydwarf_Elite", 1, 300, "defeated_eikthyr", 3));
-            list.Add(BS("infernal_surtling", "Infernal Surtling", "An enormous three-starred Surtling blazes through the swamp with unnatural intensity, its flames burning blue-white and igniting everything within a wide radius. Even the waterlogged swamp cannot quench its fury.", "Surtling", 1, 400, "defeated_gdking", 4));
-            list.Add(BS("draugr_overlord", "Draugr Overlord", "A three-starred Draugr Elite has risen from the deepest crypt in the swamp, commanding an army of lesser undead with terrifying intelligence. This ancient warrior-king must be destroyed before his forces grow.", "Draugr_Elite", 1, 700, "defeated_gdking", 4));
-            list.Add(BS("alpha_wolf", "Alpha Wolf", "A three-starred Alpha Wolf leads the mountain packs with savage cunning, its howl sending even experienced warriors into retreat. This enormous predator is the reason entire hunting parties have vanished.", "Wolf", 1, 600, "defeated_bonemass", 4));
-            list.Add(BS("frost_drake_alpha", "Frost Drake Alpha", "A three-starred Frost Drake circles the highest peaks, its icy breath capable of flash-freezing a Viking solid in seconds. This ancient drake has terrorized the mountains for years, and Haldor finally has coin to end it.", "Hatchling", 1, 800, "defeated_bonemass", 4));
-            list.Add(BS("stone_colossus", "Stone Colossus", "A two-starred Stone Golem of immense size guards the mountain summit, its footsteps causing avalanches and its fists shattering cliff faces. This is no ordinary golem. It is an ancient guardian awakened from millennia of slumber.", "StoneGolem", 1, 900, "defeated_bonemass", 3));
-            list.Add(BS("fuling_warlord", "Fuling Warlord", "A three-starred Fuling Berserker has united several plains villages under its brutal rule, leading devastating raids. This colossal warlord wields a club the size of a tree trunk.", "GoblinBrute", 1, 1000, "defeated_dragon", 4));
-            list.Add(BS("deathsquito_swarm", "Deathsquito Swarm", "A swarm of two-starred Deathsquitos has appeared, each one larger and more aggressive than any seen before. Their synchronized attacks are nearly impossible to dodge. Survive their onslaught and destroy them.", "Deathsquito", 3, 600, "defeated_dragon", 3));
-            list.Add(BS("ancient_lox", "Ancient Lox", "A two-starred Ancient Lox wanders the plains, its hide scarred from a hundred battles. This beast is so large it shakes the ground with every step, and its charge can demolish stone walls.", "Lox", 1, 1500, "defeated_dragon", 3));
-            list.Add(BS("seeker_matriarch", "Seeker Matriarch", "A three-starred Seeker Brute guards the deepest hive in the Mistlands, its chitinous armor nearly impenetrable and its mandibles capable of shearing through iron. This is the queen's chosen protector.", "SeekerBrute", 1, 2000, "defeated_goblinking", 4));
-            list.Add(BS("gjall_leviathan", "Gjall Leviathan", "A two-starred Gjall of terrible size drifts through the Mistlands like a living fortress, its explosive projectiles leveling everything below. This aerial monstrosity is the most dangerous creature in the mists.", "Gjall", 1, 2500, "defeated_goblinking", 3));
+            AddRaidBounties(list, "defeated_goblinking", "HB_BountyNpc_T6",
+                RD("rd_ml_1", "Flametal Brotherhood", "Devastating coordinated assaults.", 4, 8500),
+                RD("rd_ml_2", "Ashlands Vanguard", "An army unto themselves.", 5, 12000),
+                RD("rd_ml_3", "Void Pact", "They fight in eerie silence.", 4, 9500),
+                RD("rd_ml_4", "The Last Legion", "Flametal from head to toe.", 5, 14000),
+                RD("rd_ml_5", "Mist Walkers", "They emerge from the fog as one.", 4, 9000),
+                RD("rd_ml_6", "Eitr Guard", "Their weapons crackle with eitr energy.", 5, 13000),
+                RD("rd_ml_7", "Chitin Cult", "Warriors bound in Seeker chitin.", 4, 10000),
+                RD("rd_ml_8", "The Forgotten", "No one remembers their names. Few survive.", 5, 15000),
+                RD("rd_ml_9", "Deep Patrol", "They patrol the deepest reaches of the mist.", 4, 9800),
+                RD("rd_ml_10", "Ashborn Elite", "The final challenge for any Viking.", 5, 16000));
 
             return list;
         }
 
-        // Helper for standard bounties
-        private static BountyEntry B(string id, string title, string desc, string type, string target, int amount, int reward, string boss, string tier)
+        // ── Builder helpers ──
+
+        private struct KillDef { public string Id, Title, Desc, Target; public int Amount, Reward; }
+        private struct MinibossDef { public string Id, Title, Desc; public int Reward, Gender; }
+        private struct RaidDef { public string Id, Title, Desc; public int Amount, Reward; }
+
+        private static KillDef K(string id, string title, string desc, string target, int amount, int reward)
+            => new KillDef { Id = id, Title = title, Desc = desc, Target = target, Amount = amount, Reward = reward };
+        private static MinibossDef MB(string id, string title, string desc, int reward, int gender)
+            => new MinibossDef { Id = id, Title = title, Desc = desc, Reward = reward, Gender = gender };
+        private static RaidDef RD(string id, string title, string desc, int amount, int reward)
+            => new RaidDef { Id = id, Title = title, Desc = desc, Amount = amount, Reward = reward };
+
+        private static void AddKillBounties(List<BountyEntry> list, string boss, string tier, params KillDef[] defs)
         {
-            return new BountyEntry { Id = id, Title = title, Description = desc, Type = type, Target = target, Amount = amount, Reward = reward, RequiredBoss = boss, Tier = tier };
+            foreach (var d in defs)
+                list.Add(new BountyEntry { Id = d.Id, Title = d.Title, Description = d.Desc, Type = "Kill", Target = d.Target, Amount = d.Amount, Reward = d.Reward, RequiredBoss = boss, Tier = tier });
         }
 
-        // Helper for miniboss starred bounties
-        private static BountyEntry BS(string id, string title, string desc, string target, int amount, int reward, string boss, int spawnLevel)
+        private static void AddMinibossBounties(List<BountyEntry> list, string boss, string target, params MinibossDef[] defs)
         {
-            return new BountyEntry { Id = id, Title = title, Description = desc, Type = "Kill", Target = target, Amount = amount, Reward = reward, RequiredBoss = boss, SpawnLevel = spawnLevel, Tier = "Miniboss" };
+            foreach (var d in defs)
+                list.Add(new BountyEntry { Id = d.Id, Title = d.Title, Description = d.Desc, Type = "Kill", Target = target, Amount = 1, Reward = d.Reward, RequiredBoss = boss, SpawnLevel = 1, Tier = "Miniboss", Gender = d.Gender });
+        }
+
+        private static void AddRaidBounties(List<BountyEntry> list, string boss, string target, params RaidDef[] defs)
+        {
+            foreach (var d in defs)
+                list.Add(new BountyEntry { Id = d.Id, Title = d.Title, Description = d.Desc, Type = "Kill", Target = target, Amount = d.Amount, Reward = d.Reward, RequiredBoss = boss, SpawnLevel = 1, Tier = "Raid" });
         }
     }
 }
