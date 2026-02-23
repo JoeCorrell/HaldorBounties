@@ -443,7 +443,7 @@ namespace HaldorBounties
                 if (_actionButtonLabel != null &&
                     (child.gameObject == _actionButtonLabel.gameObject || _actionButtonLabel.transform.IsChildOf(child)))
                     continue;
-                UnityEngine.Object.DestroyImmediate(child.gameObject);
+                UnityEngine.Object.Destroy(child.gameObject);
             }
 
             // Dark tint overlay — identical to TraderUI bank button

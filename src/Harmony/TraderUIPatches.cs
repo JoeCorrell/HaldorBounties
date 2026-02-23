@@ -190,7 +190,7 @@ namespace HaldorBounties
                 var child = _tabBounties.transform.GetChild(i);
                 if (txt != null && (child.gameObject == txt.gameObject || txt.transform.IsChildOf(child)))
                     continue;
-                UnityEngine.Object.DestroyImmediate(child.gameObject);
+                UnityEngine.Object.Destroy(child.gameObject);
             }
 
             var tabRT = _tabBounties.GetComponent<RectTransform>();

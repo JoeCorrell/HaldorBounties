@@ -21,11 +21,9 @@ namespace HaldorBounties
 
             // Check if this is a raid bounty — raids use normal enemy HUD, not boss bar
             bool isRaid = false;
-            string localId = bountyId;
-            if (BountyManager.Instance != null && !string.IsNullOrEmpty(localId))
+            if (BountyManager.Instance != null && !string.IsNullOrEmpty(bountyId))
             {
-                var entry = BountyConfig.Bounties.Find(b => b.Id == localId);
-                if (entry != null && entry.Tier == "Raid")
+                if (BountyManager.Instance.TryGetEntry(bountyId, out var entry) && entry.Tier == "Raid")
                     isRaid = true;
             }
 

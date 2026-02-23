@@ -74,7 +74,7 @@ namespace HaldorBounties
                 if (!isRelevant && Player.m_localPlayer != null)
                 {
                     float dist = Vector3.Distance(__instance.transform.position, Player.m_localPlayer.transform.position);
-                    if (dist < 100f)
+                    if (dist < 40f)
                         isRelevant = true;
                 }
 

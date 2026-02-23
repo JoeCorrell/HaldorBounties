@@ -9,9 +9,6 @@ namespace HaldorBounties
     {
         public int TierIndex;
 
-        /// <summary>Set before Instantiate to force male(1) or female(2) model. 0=random. Reset after use.</summary>
-        public static int ForceGender;
-
         private static readonly string[] Beards = new string[]
         {
             "Beard2", "Beard3", "Beard4", "Beard5", "Beard6", "Beard7", "Beard8", "Beard9", "Beard10",
@@ -29,6 +26,7 @@ namespace HaldorBounties
 
         // ZDO hash keys
         private static readonly int EquippedHash    = StringExtensionMethods.GetStableHashCode("HB_NpcEquipped");
+        private static readonly int GenderHash      = StringExtensionMethods.GetStableHashCode("HB_NpcGender");
         private static readonly int CombatStyleHash = StringExtensionMethods.GetStableHashCode("HB_CombatStyle");
         private static readonly int WeaponIdxHash   = StringExtensionMethods.GetStableHashCode("HB_WeaponIdx");
         private static readonly int ShieldIdxHash   = StringExtensionMethods.GetStableHashCode("HB_ShieldIdx");
@@ -46,14 +44,9 @@ namespace HaldorBounties
         private VisEquipment _visEquip;
         private Humanoid _humanoid;
         private bool _initialized;
-        private int _cachedGender = -1;
 
         private void Awake()
         {
-            // Cache ForceGender immediately — subsequent spawns may overwrite it before Start()
-            if (ForceGender > 0)
-                _cachedGender = ForceGender;
-
             TryInitialize();
         }
 
@@ -79,10 +72,9 @@ namespace HaldorBounties
 
             if (firstSpawn)
             {
-                // Restore cached gender if ForceGender was consumed by another NPC's Awake
-                if (_cachedGender >= 0 && ForceGender == 0)
-                    ForceGender = _cachedGender;
-                SetupVisuals();
+                // Read gender from ZDO (set by BountyManager at spawn time) — avoids static field race conditions
+                int gender = _nview.GetZDO().GetInt(GenderHash, 0);
+                SetupVisuals(gender);
             }
 
             SetupEquipment(tier, firstSpawn);
@@ -100,16 +92,15 @@ namespace HaldorBounties
             _initialized = true;
         }
 
-        private void SetupVisuals()
+        private void SetupVisuals(int gender)
         {
             _visNviewField?.SetValue(_visEquip, _nview);
 
             float skinBrightness = 0.2f + Random.Range(0f, 0.8f);
             Color hairColor = Color.HSVToRGB(0.13f + Random.Range(0f, 0.03f), Random.value, Random.value);
 
-            // ForceGender: 1=male(model 0), 2=female(model 1), 0=random
-            int model = ForceGender == 1 ? 0 : ForceGender == 2 ? 1 : Random.Range(0, 2);
-            ForceGender = 0; // reset after use
+            // gender: 1=male(model 0), 2=female(model 1), 0=random
+            int model = gender == 1 ? 0 : gender == 2 ? 1 : Random.Range(0, 2);
             _visEquip.SetModel(model);
 
             string hair = Hairs[Random.Range(0, Hairs.Length)];
@@ -126,22 +117,37 @@ namespace HaldorBounties
 
         private void SetupEquipment(TierData tier, bool firstSpawn)
         {
+            // Guard against empty arrays to prevent IndexOutOfRangeException
+            if (tier.Weapons1H.Length == 0 && tier.Weapons2H.Length == 0 && tier.WeaponsBow.Length == 0)
+            {
+                HaldorBounties.Log.LogWarning($"[NpcSetup] Tier has no weapons — skipping equipment setup");
+                return;
+            }
+
             int combatStyle, weaponIdx, shieldIdx, armorIdx;
 
             if (firstSpawn)
             {
                 bool hasBow = tier.WeaponsBow.Length > 0;
+                bool has2H  = tier.Weapons2H.Length > 0;
                 int roll = Random.Range(0, 10);
 
-                if (!hasBow)
+                if (!hasBow && !has2H)
+                    combatStyle = 0;
+                else if (!hasBow)
                     combatStyle = (roll < 5) ? 0 : 1;
+                else if (!has2H)
+                    combatStyle = (roll < 5) ? 0 : 2;
                 else
                     combatStyle = (roll < 2) ? 0 : (roll < 5) ? 1 : 2; // 20% 1H+shield, 30% 2H, 50% ranged
 
+                // Ensure the selected combat style has weapons, fall back to 1H
                 string[] weaponArray = GetWeaponArray(tier, combatStyle);
+                if (weaponArray.Length == 0) { combatStyle = 0; weaponArray = tier.Weapons1H; }
+
                 weaponIdx = Random.Range(0, weaponArray.Length);
-                shieldIdx = Random.Range(0, tier.Shields.Length);
-                armorIdx  = Random.Range(0, tier.ArmorSets.Length);
+                shieldIdx = tier.Shields.Length > 0 ? Random.Range(0, tier.Shields.Length) : 0;
+                armorIdx  = tier.ArmorSets.Length > 0 ? Random.Range(0, tier.ArmorSets.Length) : 0;
 
                 _nview.GetZDO().Set(CombatStyleHash, combatStyle);
                 _nview.GetZDO().Set(WeaponIdxHash, weaponIdx);
@@ -193,8 +199,9 @@ namespace HaldorBounties
 
         private void Equip1HAndShield(TierData tier, int weaponIdx, int shieldIdx)
         {
+            if (tier.Weapons1H.Length == 0) return;
             weaponIdx = Mathf.Clamp(weaponIdx, 0, tier.Weapons1H.Length - 1);
-            shieldIdx = Mathf.Clamp(shieldIdx, 0, tier.Shields.Length - 1);
+            shieldIdx = tier.Shields.Length > 0 ? Mathf.Clamp(shieldIdx, 0, tier.Shields.Length - 1) : -1;
 
             var weaponPrefab = ResolveWeapon(tier.Weapons1H[weaponIdx], tier.Weapons1H);
             if (weaponPrefab != null)
@@ -204,6 +211,7 @@ namespace HaldorBounties
                 _setRightHandEquipped?.Invoke(_visEquip, new object[] { StringExtensionMethods.GetStableHashCode(weaponPrefab.name) });
             }
 
+            if (shieldIdx < 0) return;
             var shieldPrefab = ObjectDB.instance.GetItemPrefab(tier.Shields[shieldIdx]);
             if (shieldPrefab != null)
             {
@@ -215,6 +223,7 @@ namespace HaldorBounties
 
         private void Equip2H(TierData tier, int weaponIdx)
         {
+            if (tier.Weapons2H.Length == 0) return;
             weaponIdx = Mathf.Clamp(weaponIdx, 0, tier.Weapons2H.Length - 1);
 
             var weaponPrefab = ResolveWeapon(tier.Weapons2H[weaponIdx], tier.Weapons2H);
@@ -236,6 +245,7 @@ namespace HaldorBounties
 
         private void EquipBow(TierData tier, int weaponIdx)
         {
+            if (tier.WeaponsBow.Length == 0) return;
             weaponIdx = Mathf.Clamp(weaponIdx, 0, tier.WeaponsBow.Length - 1);
 
             // Try the selected bow; if HB_ clone is missing, fall back to any available bow,
@@ -270,6 +280,7 @@ namespace HaldorBounties
 
         private void SetupArmor(TierData tier, int armorIdx)
         {
+            if (tier.ArmorSets.Length == 0) return;
             armorIdx = Mathf.Clamp(armorIdx, 0, tier.ArmorSets.Length - 1);
             string[] armorNames = tier.ArmorSets[armorIdx];
 

@@ -27,9 +27,15 @@ namespace HaldorBounties
             BountyManager.Initialize();
 
             _harmony = new Harmony(PluginGUID);
-            _harmony.PatchAll(Assembly.GetExecutingAssembly());
+            try
+            {
+                _harmony.PatchAll(Assembly.GetExecutingAssembly());
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogError($"[HaldorBounties] Harmony PatchAll failed: {ex}");
+            }
 
-            // L-6: Log total patch count only (individual method names are too verbose for production)
             int count = 0;
             foreach (var _ in _harmony.GetPatchedMethods()) count++;
             Log.LogInfo($"{PluginName} loaded successfully! ({count} methods patched)");
@@ -43,7 +49,7 @@ namespace HaldorBounties
         private void OnDestroy()
         {
             _harmony?.UnpatchSelf();
-            Log.LogInfo($"{PluginName} unloaded.");
+            Log?.LogInfo($"{PluginName} unloaded.");
         }
     }
 }

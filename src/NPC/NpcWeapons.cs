@@ -41,6 +41,12 @@ namespace HaldorBounties
 
         public static void Init(ZNetScene zNetScene)
         {
+            if (ObjectDB.instance == null)
+            {
+                HaldorBounties.Log.LogError("[NpcWeapons] ObjectDB.instance is null — cannot register weapons.");
+                return;
+            }
+
             if (_weaponRoot == null)
             {
                 _weaponRoot = new GameObject("HB_NpcWeapons");

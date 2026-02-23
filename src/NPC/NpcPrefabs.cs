@@ -102,7 +102,18 @@ namespace HaldorBounties
             // Register with ZNetScene
             int hash = StringExtensionMethods.GetStableHashCode(go.name);
             zNetScene.m_prefabs.Add(go);
+
+            if (_namedPrefabsField == null)
+            {
+                HaldorBounties.Log.LogError("[NpcPrefabs] m_namedPrefabs field not found — prefab registration incomplete!");
+                return;
+            }
             var namedPrefabs = _namedPrefabsField.GetValue(zNetScene) as Dictionary<int, GameObject>;
+            if (namedPrefabs == null)
+            {
+                HaldorBounties.Log.LogError("[NpcPrefabs] m_namedPrefabs is null or wrong type!");
+                return;
+            }
             namedPrefabs[hash] = go;
 
             HaldorBounties.Log.LogInfo($"[NpcPrefabs] Registered prefab: {tier.PrefabName}");

@@ -75,6 +75,12 @@ namespace HaldorBounties
             Instance.CacheReflection();
         }
 
+        /// <summary>O(1) lookup by bounty ID. Use instead of BountyConfig.Bounties.Find().</summary>
+        public bool TryGetEntry(string bountyId, out BountyEntry entry)
+        {
+            return _bountyLookup.TryGetValue(bountyId, out entry);
+        }
+
         private void CacheReflection()
         {
             try
@@ -434,11 +440,18 @@ namespace HaldorBounties
                     if (i == 0) firstSpawnPos = pos;
                     Quaternion rot = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
 
-                    NpcSetup.ForceGender = entry.Gender;
                     var go        = UnityEngine.Object.Instantiate(prefab, pos, rot);
                     var character = go.GetComponent<Character>();
-                    if (character != null)
+                    var nview = go.GetComponent<ZNetView>();
+
+                    // SetLevel requires a valid ZDO — must check nview first
+                    if (character != null && nview?.GetZDO() != null)
                     {
+                        var zdo = nview.GetZDO();
+
+                        // Write gender to ZDO so NpcSetup reads it reliably (no static field race)
+                        zdo.Set(StringExtensionMethods.GetStableHashCode("HB_NpcGender"), entry.Gender);
+
                         character.SetLevel(entry.SpawnLevel);
                         character.SetHealth(character.GetMaxHealth());
                         if (isRaid)
@@ -451,12 +464,7 @@ namespace HaldorBounties
                             character.m_boss = true;
                             character.m_dontHideBossHud = true;
                         }
-                    }
 
-                    var nview = go.GetComponent<ZNetView>();
-                    if (nview?.GetZDO() != null)
-                    {
-                        var zdo = nview.GetZDO();
                         zdo.Set("HaldorBountyMiniboss", true);
                         zdo.Set("HaldorBountyBossName", bossName);
                         zdo.Set("HaldorBountyId", entry.Id);
@@ -617,8 +625,9 @@ namespace HaldorBounties
             }
             _bountyPins.Clear();
 
-            // Remove all bounty status effects
-            foreach (var bountyId in _activeBountyIds)
+            // Remove all bounty status effects (copy to avoid potential modification during iteration)
+            var bountyIdsCopy = new List<string>(_activeBountyIds);
+            foreach (var bountyId in bountyIdsCopy)
                 RemoveBountyStatusEffect(player, bountyId);
 
             // Reset active set and day tracking
@@ -670,10 +679,12 @@ namespace HaldorBounties
                     if (zdo == null) continue;
                     if (zdo.GetString("HaldorBountyId", "") != bountyId) continue;
 
-                    if (nview.IsValid())
+                    if (nview.IsValid() && nview.IsOwner())
                         nview.Destroy();
-                    else
+                    else if (nview.IsOwner())
                         UnityEngine.Object.Destroy(c.gameObject);
+                    else
+                        continue; // not the ZDO owner — can't destroy in multiplayer
                     cleaned++;
                 }
                 if (cleaned > 0)
