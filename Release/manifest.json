@@ -1,0 +1,12 @@
+{
+  "name": "HaldorBounties",
+  "author": "ProfMags",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/JoeCorrell/HaldorBounties",
+  "description": "Adds a daily bounty board to Haldor's shop — accept kill and gather quests, hunt miniboss spawns, and earn coins deposited directly to your bank.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2200",
+    "ValheimModding-JsonDotNET-13.0.4",
+    "ProfMags-HaldorOverhaul-1.0.18"
+  ]
+}
