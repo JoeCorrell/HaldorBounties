@@ -45,6 +45,7 @@ namespace HaldorBounties
         private TMP_Text _detailGoal;
         private Button _actionButton;
         private TMP_Text _actionButtonLabel;
+        private GameObject _actionButtonHighlight;
         private Image _progressBarFill;
         private GameObject _progressBarRoot;
 
@@ -445,7 +446,7 @@ namespace HaldorBounties
                 UnityEngine.Object.DestroyImmediate(child.gameObject);
             }
 
-            // Dark tint overlay — identical to TraderUI action button
+            // Dark tint overlay — identical to TraderUI bank button
             var tintGO = new GameObject("Tint", typeof(RectTransform), typeof(Image));
             tintGO.transform.SetParent(go.transform, false);
             tintGO.transform.SetAsFirstSibling();
@@ -458,17 +459,27 @@ namespace HaldorBounties
             tintImg.color = new Color(0f, 0f, 0f, 0.75f);
             tintImg.raycastTarget = false;
 
-            // Highlight on hover/select — matches tab button highlight style
-            btn.targetGraphic = tintImg;
-            btn.transition = Selectable.Transition.ColorTint;
-            var colors = btn.colors;
-            colors.normalColor = new Color(0f, 0f, 0f, 0.75f);
-            colors.highlightedColor = new Color(0.35f, 0.25f, 0.08f, 0.55f);
-            colors.pressedColor = new Color(0.45f, 0.35f, 0.12f, 0.4f);
-            colors.selectedColor = new Color(0.35f, 0.25f, 0.08f, 0.55f);
-            colors.disabledColor = new Color(0f, 0f, 0f, 0.85f);
-            colors.fadeDuration = 0.1f;
-            btn.colors = colors;
+            // Selection highlight — identical to TraderUI bank button highlight
+            _actionButtonHighlight = new GameObject("selected", typeof(RectTransform), typeof(Image));
+            _actionButtonHighlight.transform.SetParent(go.transform, false);
+            _actionButtonHighlight.transform.SetAsFirstSibling();
+            var selRT = _actionButtonHighlight.GetComponent<RectTransform>();
+            selRT.anchorMin = Vector2.zero;
+            selRT.anchorMax = Vector2.one;
+            selRT.offsetMin = new Vector2(-4f, -4f);
+            selRT.offsetMax = new Vector2(4f, 4f);
+            _actionButtonHighlight.GetComponent<Image>().color = new Color(1f, 0.82f, 0.24f, 0.25f);
+            _actionButtonHighlight.GetComponent<Image>().raycastTarget = false;
+            _actionButtonHighlight.SetActive(false);
+
+            // Mouse hover shows/hides the highlight — identical to tab active style
+            var trigger = go.AddComponent<EventTrigger>();
+            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            enterEntry.callback.AddListener(_ => { if (_actionButtonHighlight != null && btn.interactable) _actionButtonHighlight.SetActive(true); });
+            trigger.triggers.Add(enterEntry);
+            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            exitEntry.callback.AddListener(_ => { if (_actionButtonHighlight != null) _actionButtonHighlight.SetActive(false); });
+            trigger.triggers.Add(exitEntry);
 
             // Bottom-anchored, full-width — identical to TraderUI action button
             var rt = go.GetComponent<RectTransform>();
@@ -715,6 +726,10 @@ namespace HaldorBounties
             CheckRewardButtonClicks();
 
             if (!ZInput.IsGamepadActive()) return;
+
+            // Gamepad highlight for action button — show when no reward is focused
+            if (_actionButtonHighlight != null && _actionButton != null)
+                _actionButtonHighlight.SetActive(_actionButton.gameObject.activeSelf && _actionButton.interactable && _focusedRewardIndex < 0);
 
             // D-pad up/down — navigate bounty list
             if (ZInput.GetButtonDown("JoyLStickDown") || ZInput.GetButtonDown("JoyDPadDown"))
