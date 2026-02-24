@@ -16,6 +16,28 @@ Turn Haldor into a daily contract board with biome-locked bounty progression, pl
 </a>
 </p>
 
+<h3>Bounty UI</h3>
+<p align="center">
+<a href="https://github.com/JoeCorrell/HaldorBounties/tree/main/Screenshots">
+<img src="https://raw.githubusercontent.com/JoeCorrell/HaldorBounties/main/Screenshots/ui.png" alt="Bounty UI" width="600"/>
+</a>
+</p>
+
+<hr/>
+
+<h3>NPC</h3>
+<p align="center">
+<a href="https://github.com/JoeCorrell/HaldorBounties/tree/main/Screenshots">
+<img src="https://raw.githubusercontent.com/JoeCorrell/HaldorBounties/main/Screenshots/npc.png" alt="NPC" width="600"/>
+</a>
+</p>
+
+<p align="center">
+<a href="https://github.com/JoeCorrell/HaldorBounties/tree/main/Screenshots">View all screenshots</a>
+</p>
+
+---
+
 ## Features
 
 Adds a fourth **Bounties** tab to HaldorOverhaul (Buy/Sell/Bank/Bounties)<br/>
@@ -98,44 +120,6 @@ Left panel sections:<br/>
 `Completed` (claimed this day)
 
 Right panel shows details, progress, tier, objective, reward choices, and Accept/Abandon/Claim state.
-
-<hr/>
-
-## Configuration
-
-On first launch, the mod creates:
-
-`BepInEx/config/HaldorBounties.bounties.json`
-
-The file uses a wrapper schema:
-
-```json
-{
-  "Version": 2,
-  "Bounties": [
-    {
-      "Id": "m_deer_1",
-      "Title": "Eikthyr's Offering",
-      "Description": "Haldor craves fresh venison for his stores...",
-      "Type": "Kill",
-      "Target": "Deer",
-      "Amount": 5,
-      "Reward": 30,
-      "RequiredBoss": "",
-      "SpawnLevel": 0,
-      "Tier": "Easy",
-      "Gender": 0
-    }
-  ]
-}
-```
-
-`Type`: `Kill`<br/>
-`Tier`: `Easy`, `Medium`, `Hard`, `Miniboss`, `Raid`<br/>
-`SpawnLevel`: must be > 0 for Miniboss/Raid entries<br/>
-`Gender`: `0` random, `1` male, `2` female (used for miniboss naming/model selection)
-
-Delete the config file to regenerate defaults.
 
 <hr/>
 

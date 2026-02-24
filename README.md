@@ -16,6 +16,28 @@ Turn Haldor into a daily contract board with biome-locked bounty progression, pl
 </a>
 </p>
 
+<h3>Bounty UI</h3>
+<p align="center">
+<a href="https://github.com/JoeCorrell/HaldorBounties/tree/main/Screenshots">
+<img src="https://raw.githubusercontent.com/JoeCorrell/HaldorBounties/main/Screenshots/ui.png" alt="Bounty UI" width="600"/>
+</a>
+</p>
+
+<hr/>
+
+<h3>NPC</h3>
+<p align="center">
+<a href="https://github.com/JoeCorrell/HaldorBounties/tree/main/Screenshots">
+<img src="https://raw.githubusercontent.com/JoeCorrell/HaldorBounties/main/Screenshots/npc.png" alt="NPC" width="600"/>
+</a>
+</p>
+
+<p align="center">
+<a href="https://github.com/JoeCorrell/HaldorBounties/tree/main/Screenshots">View all screenshots</a>
+</p>
+
+---
+
 ## Features
 
 Adds a fourth **Bounties** tab to HaldorOverhaul (Buy/Sell/Bank/Bounties)<br/>
