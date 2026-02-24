@@ -92,7 +92,9 @@ namespace HaldorBounties
             rt.anchorMax = Vector2.one;
             rt.offsetMin = new Vector2(6f, bottomPad);
             rt.offsetMax = new Vector2(-6f, -colTopInset);
-            _root.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.75f);
+            var rootImg = _root.GetComponent<Image>();
+            rootImg.color = new Color(0f, 0f, 0f, 0.75f);
+            rootImg.raycastTarget = false;
 
             // ── Left panel (bounty list, split into Available / Active) ──
             var leftPanel = new GameObject("LeftPanel", typeof(RectTransform));
@@ -454,14 +456,7 @@ namespace HaldorBounties
             _actionButtonHighlight.GetComponent<Image>().raycastTarget = false;
             _actionButtonHighlight.SetActive(false);
 
-            // Mouse hover shows/hides the highlight — identical to tab active style
-            var trigger = go.AddComponent<EventTrigger>();
-            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enterEntry.callback.AddListener(_ => { if (_actionButtonHighlight != null && btn.interactable) _actionButtonHighlight.SetActive(true); });
-            trigger.triggers.Add(enterEntry);
-            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
-            exitEntry.callback.AddListener(_ => { if (_actionButtonHighlight != null) _actionButtonHighlight.SetActive(false); });
-            trigger.triggers.Add(exitEntry);
+            // Hover highlight handled by CheckActionButtonHover (raw Input, per-frame)
 
             // Bottom-anchored, full-width — identical to TraderUI action button
             var rt = go.GetComponent<RectTransform>();
@@ -528,7 +523,62 @@ namespace HaldorBounties
         }
 
         /// <summary>
-        /// Checks raw mouse input against reward button rects.
+        /// Checks raw mouse position against reward button rects for hover highlight.
+        /// Bypasses Unity EventSystem entirely — same approach as click detection.
+        /// </summary>
+        private void CheckRewardButtonHover()
+        {
+            if (_rewardChoiceRow == null || !_rewardChoiceRow.activeSelf) return;
+            if (_rewardChoiceButtons.Count == 0) return;
+            if (ZInput.IsGamepadActive()) return; // gamepad uses NavigateRewardButtons instead
+
+            Camera uiCam = null;
+            var canvas = _rewardChoiceRow.GetComponentInParent<Canvas>();
+            if (canvas != null) uiCam = canvas.worldCamera;
+
+            Vector2 mousePos = Input.mousePosition;
+            int hoveredIndex = -1;
+            for (int i = 0; i < _rewardChoiceButtons.Count; i++)
+            {
+                var btn = _rewardChoiceButtons[i];
+                if (btn == null || !btn.interactable) continue;
+
+                var btnRT = btn.GetComponent<RectTransform>();
+                if (RectTransformUtility.RectangleContainsScreenPoint(btnRT, mousePos, uiCam))
+                {
+                    hoveredIndex = i;
+                    break;
+                }
+            }
+
+            if (hoveredIndex != _focusedRewardIndex)
+            {
+                _focusedRewardIndex = hoveredIndex;
+                UpdateRewardButtonVisuals();
+            }
+        }
+
+        /// <summary>
+        /// Checks raw mouse position against action button rect for hover highlight.
+        /// Bypasses Unity EventSystem entirely — same approach as reward hover.
+        /// </summary>
+        private void CheckActionButtonHover()
+        {
+            if (_actionButtonHighlight == null || _actionButton == null) return;
+            if (!_actionButton.gameObject.activeSelf || !_actionButton.interactable) return;
+            if (ZInput.IsGamepadActive()) return;
+
+            Camera uiCam = null;
+            var canvas = _actionButton.GetComponentInParent<Canvas>();
+            if (canvas != null) uiCam = canvas.worldCamera;
+
+            var btnRT = _actionButton.GetComponent<RectTransform>();
+            bool hovering = RectTransformUtility.RectangleContainsScreenPoint(btnRT, Input.mousePosition, uiCam);
+            _actionButtonHighlight.SetActive(hovering);
+        }
+
+        /// <summary>
+        /// Checks raw mouse input against reward button rects for clicks.
         /// Bypasses Unity EventSystem entirely — called from UpdatePerFrame.
         /// </summary>
         private void CheckRewardButtonClicks()
@@ -560,8 +610,7 @@ namespace HaldorBounties
 
         private Button CreateRewardChoiceButton(int index, float xPos)
         {
-            // Visual-only button — all child graphics have raycastTarget=false.
-            // Clicks are handled by the parent row's EventTrigger.
+            // Visual-only button — hover and clicks handled via raw Input in UpdatePerFrame.
             var btnGO = new GameObject($"RewardBtn_{index}", typeof(RectTransform), typeof(Image), typeof(Button));
             btnGO.transform.SetParent(_rewardChoiceRow.transform, false);
 
@@ -572,10 +621,9 @@ namespace HaldorBounties
             btnRT.sizeDelta = new Vector2(RewardBtnSize, RewardBtnSize);
             btnRT.anchoredPosition = new Vector2(xPos, 0f);
 
-            // Background — needs raycastTarget for hover (PointerEnter/Exit) detection
             var bgImg = btnGO.GetComponent<Image>();
             bgImg.color = new Color(0.12f, 0.12f, 0.12f, 1f);
-            bgImg.raycastTarget = true;
+            bgImg.raycastTarget = false;
 
             // Sprite overlay (CategoryBackground texture)
             if (_catBtnSprite != null)
@@ -648,32 +696,6 @@ namespace HaldorBounties
             hlGO.SetActive(false);
             _rewardHighlights.Add(hlGO);
 
-            // Mouse hover shows/hides highlight
-            var trigger = btnGO.AddComponent<EventTrigger>();
-            int idx = index; // capture for closure
-            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enterEntry.callback.AddListener(_ =>
-            {
-                HaldorBounties.Log.LogInfo($"[BountyPanel] PointerEnter on reward btn {idx}, interactable={btn.interactable}, focusedIdx={_focusedRewardIndex}");
-                if (btn.interactable)
-                {
-                    _focusedRewardIndex = idx;
-                    UpdateRewardButtonVisuals();
-                }
-            });
-            trigger.triggers.Add(enterEntry);
-            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
-            exitEntry.callback.AddListener(_ =>
-            {
-                HaldorBounties.Log.LogInfo($"[BountyPanel] PointerExit on reward btn {idx}, focusedIdx={_focusedRewardIndex}");
-                if (_focusedRewardIndex == idx)
-                {
-                    _focusedRewardIndex = -1;
-                    UpdateRewardButtonVisuals();
-                }
-            });
-            trigger.triggers.Add(exitEntry);
-
             return btn;
         }
 
@@ -745,8 +767,10 @@ namespace HaldorBounties
                 _lastDisplayedDay = currentDay;
             }
 
-            // Raw mouse click detection for reward buttons — bypasses EventSystem
+            // Raw mouse hover + click detection — bypasses EventSystem entirely
+            CheckRewardButtonHover();
             CheckRewardButtonClicks();
+            CheckActionButtonHover();
 
             if (!ZInput.IsGamepadActive()) return;
 
@@ -865,17 +889,11 @@ namespace HaldorBounties
 
         private void UpdateRewardButtonVisuals()
         {
-            HaldorBounties.Log.LogInfo($"[BountyPanel] UpdateRewardButtonVisuals: focusedIdx={_focusedRewardIndex}, highlightCount={_rewardHighlights.Count}");
             for (int i = 0; i < _rewardHighlights.Count; i++)
             {
                 var hl = _rewardHighlights[i];
                 if (hl != null)
-                {
-                    bool active = i == _focusedRewardIndex;
-                    hl.SetActive(active);
-                    if (active)
-                        HaldorBounties.Log.LogInfo($"[BountyPanel]   -> Highlight {i} SET ACTIVE");
-                }
+                    hl.SetActive(i == _focusedRewardIndex);
             }
         }
 

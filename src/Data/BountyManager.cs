@@ -1125,15 +1125,9 @@ namespace HaldorBounties
                 if (entry.SpawnLevel <= 0) continue;
 
                 if (!player.m_customData.TryGetValue(SpawnPosKeyPrefix + bountyId, out string posStr)) continue;
+                if (!TryParsePosition(posStr, out Vector3 pos)) continue;
 
-                string[] parts = posStr.Split(',');
-                if (parts.Length != 3) continue;
-                if (!float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x)) continue;
-                if (!float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y)) continue;
-                if (!float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z)) continue;
-
-                Vector3 pos = new Vector3(x, y, z);
-                string pinName = IsRaid(entry) ? entry.Title : GetBossName(bountyId);
+                string pinName = IsRaid(entry) ? "Valheim Raiders" : GetBossName(bountyId);
 
                 try
                 {
