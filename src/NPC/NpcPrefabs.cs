@@ -67,14 +67,18 @@ namespace HaldorBounties
             nview.m_type = (ZDO.ObjectType)0;
             nview.m_syncInitialScale = false;
 
-            ZSyncTransform syncTransform = go.GetComponent<ZSyncTransform>();
-            syncTransform.m_syncPosition = true;
-            syncTransform.m_syncRotation = true;
-            syncTransform.m_syncScale = false;
-            syncTransform.m_syncBodyVelocity = false;
-            syncTransform.m_characterParentSync = false;
+            var syncTransform = go.GetComponent<ZSyncTransform>();
+            if (syncTransform != null)
+            {
+                syncTransform.m_syncPosition = true;
+                syncTransform.m_syncRotation = true;
+                syncTransform.m_syncScale = false;
+                syncTransform.m_syncBodyVelocity = false;
+                syncTransform.m_characterParentSync = false;
+            }
 
-            go.GetComponent<ZSyncAnimation>().m_smoothCharacterSpeeds = true;
+            var syncAnim = go.GetComponent<ZSyncAnimation>();
+            if (syncAnim != null) syncAnim.m_smoothCharacterSpeeds = true;
 
             // Per-instance visual + equipment setup
             NpcSetup setup = go.AddComponent<NpcSetup>();
@@ -97,7 +101,8 @@ namespace HaldorBounties
             };
 
             // Physics
-            go.GetComponent<Rigidbody>().mass = 50f;
+            var rb = go.GetComponent<Rigidbody>();
+            if (rb != null) rb.mass = 50f;
 
             // Register with ZNetScene
             int hash = StringExtensionMethods.GetStableHashCode(go.name);
@@ -160,24 +165,10 @@ namespace HaldorBounties
             ((Character)humanoid).m_staggerDamageFactor = 0f;
 
             // Hit effects
-            ((Character)humanoid).m_hitEffects.m_effectPrefabs = new EffectList.EffectData[]
-            {
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("vfx_player_hit"), m_enabled = true, m_variant = -1 },
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("sfx_hit"), m_enabled = true, m_variant = -1 }
-            };
-            ((Character)humanoid).m_critHitEffects.m_effectPrefabs = new EffectList.EffectData[]
-            {
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("fx_crit"), m_enabled = true, m_variant = -1 }
-            };
-            ((Character)humanoid).m_backstabHitEffects.m_effectPrefabs = new EffectList.EffectData[]
-            {
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("fx_backstab"), m_enabled = true, m_variant = -1 }
-            };
-            ((Character)humanoid).m_deathEffects.m_effectPrefabs = new EffectList.EffectData[]
-            {
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("vfx_ghost_death"), m_enabled = true, m_variant = -1 },
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("sfx_ghost_death"), m_enabled = true, m_variant = -1 }
-            };
+            ((Character)humanoid).m_hitEffects.m_effectPrefabs       = BuildEffects(zNetScene, "vfx_player_hit", "sfx_hit");
+            ((Character)humanoid).m_critHitEffects.m_effectPrefabs   = BuildEffects(zNetScene, "fx_crit");
+            ((Character)humanoid).m_backstabHitEffects.m_effectPrefabs = BuildEffects(zNetScene, "fx_backstab");
+            ((Character)humanoid).m_deathEffects.m_effectPrefabs     = BuildEffects(zNetScene, "vfx_ghost_death", "sfx_ghost_death");
 
             // Damage modifiers: immune to chop, pickaxe, spirit
             ((Character)humanoid).m_damageModifiers = new HitData.DamageModifiers
@@ -203,14 +194,8 @@ namespace HaldorBounties
             ((BaseAI)ai).m_mistVision = true;
 
             // Alert sound
-            ((BaseAI)ai).m_alertedEffects.m_effectPrefabs = new EffectList.EffectData[]
-            {
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("sfx_dverger_vo_alerted"), m_enabled = true, m_variant = -1 }
-            };
-            ((BaseAI)ai).m_idleSound.m_effectPrefabs = new EffectList.EffectData[]
-            {
-                new EffectList.EffectData { m_prefab = zNetScene.GetPrefab("sfx_dverger_vo_idle"), m_enabled = true, m_variant = 0 }
-            };
+            ((BaseAI)ai).m_alertedEffects.m_effectPrefabs = BuildEffects(zNetScene, "sfx_dverger_vo_alerted");
+            ((BaseAI)ai).m_idleSound.m_effectPrefabs      = BuildEffects(zNetScene, "sfx_dverger_vo_idle");
             ((BaseAI)ai).m_idleSoundInterval = 10f;
             ((BaseAI)ai).m_idleSoundChance = 0.5f;
 
@@ -247,6 +232,20 @@ namespace HaldorBounties
             ai.m_circleTargetInterval = 3f;
             ai.m_circleTargetDuration = 1f;
             ai.m_circleTargetDistance = 4f;
+        }
+
+        private static EffectList.EffectData[] BuildEffects(ZNetScene scene, params string[] names)
+        {
+            var list = new List<EffectList.EffectData>();
+            foreach (var name in names)
+            {
+                var prefab = scene.GetPrefab(name);
+                if (prefab != null)
+                    list.Add(new EffectList.EffectData { m_prefab = prefab, m_enabled = true, m_variant = -1 });
+                else
+                    HaldorBounties.Log.LogWarning($"[NpcPrefabs] Effect prefab not found: {name}");
+            }
+            return list.ToArray();
         }
 
         private static void DestroyComponent<T>(GameObject go) where T : Component

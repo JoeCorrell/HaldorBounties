@@ -15,7 +15,12 @@ namespace HaldorBounties
         private const string ProgressKeyPrefix = "HaldorBounty_Progress_";
         private const string BossNameKeyPrefix = "HaldorBounty_BossName_";
         private const string SpawnPosKeyPrefix = "HaldorBounty_SpawnPos_";
-        private const string BankDataKey       = "HaldorBank_Balance";
+        // BankBalanceStore in HaldorOverhaul reads TraderSharedBank_Balance first,
+        // then falls back to legacy keys. We must write all 4 to stay in sync.
+        private const string BankDataKey         = "TraderSharedBank_Balance";
+        private const string BankLegacyHaldor    = "HaldorBank_Balance";
+        private const string BankLegacyHildir    = "HildirBank_Balance";
+        private const string BankLegacyBogWitch  = "BogWitchBank_Balance";
         private const string LastDayKey        = "HaldorBounty_LastDay";
 
         public static BountyManager Instance { get; private set; }
@@ -358,8 +363,7 @@ namespace HaldorBounties
                 player.m_customData[BossNameKeyPrefix + bountyId] = bossName;
             }
 
-            try { player.m_skillLevelupEffects.Create(player.transform.position, player.transform.rotation, player.transform); }
-            catch { }
+            PlaySkillLevelupEffect(player);
 
             if (entry != null && entry.SpawnLevel > 0)
             {
@@ -436,7 +440,7 @@ namespace HaldorBounties
                     if (isRaid && i > 0)
                         pos = FindSpawnPosition(firstSpawnPos, 10f);
                     else
-                        pos = FindSpawnPosition(playerPos, 50f);
+                        pos = FindSpawnPosition(playerPos, 700f);
                     if (i == 0) firstSpawnPos = pos;
                     Quaternion rot = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
 
@@ -462,7 +466,7 @@ namespace HaldorBounties
                         {
                             character.m_name = bossName;
                             character.m_boss = true;
-                            character.m_dontHideBossHud = true;
+                            character.m_dontHideBossHud = false;
                         }
 
                         zdo.Set("HaldorBountyMiniboss", true);
@@ -537,7 +541,7 @@ namespace HaldorBounties
                 else
                     bossName = creature.m_name;
                 creature.m_boss = true;
-                creature.m_dontHideBossHud = true;
+                creature.m_dontHideBossHud = false;
             }
 
             _bountyCreatures[bountyId] = creature;
@@ -639,27 +643,136 @@ namespace HaldorBounties
             return keysToRemove.Count;
         }
 
+        /// <summary>
+        /// Per-frame check: toggle boss HUD flags on bounty creatures
+        /// based on distance to the player vs minimap explore radius.
+        /// </summary>
+        public void UpdateBossHudRange()
+        {
+            var player = Player.m_localPlayer;
+            if (player == null) return;
+
+            float minimapRadius = Minimap.instance != null ? Minimap.instance.m_exploreRadius : 100f;
+            Vector3 playerPos = player.transform.position;
+
+            foreach (var kvp in _bountyCreatures)
+            {
+                var creature = kvp.Value;
+                if (creature == null || creature.IsDead()) continue;
+
+                // Skip raid creatures (they use normal enemy HUD, not boss bar)
+                if (_bountyLookup.TryGetValue(kvp.Key, out var entry) && IsRaid(entry))
+                    continue;
+
+                float dist = Vector3.Distance(creature.transform.position, playerPos);
+                bool shouldBeBoss = dist <= minimapRadius;
+
+                if (creature.m_boss != shouldBeBoss)
+                {
+                    creature.m_boss = shouldBeBoss;
+                    creature.m_dontHideBossHud = false;
+                }
+            }
+        }
+
         public void UpdateBountyPins()
         {
             if (Minimap.instance == null) return;
 
-            var toRemove = new List<string>();
+            var player = Player.m_localPlayer;
+            if (player == null) return;
+
+            EnsureActiveBountyIdsLoaded();
+
+            // Track which creatures to remove and whether they were confirmed dead vs zone-unloaded
+            var toRemoveCreature = new List<KeyValuePair<string, bool>>(); // id, wasConfirmedDead
             foreach (var kvp in _bountyCreatures)
             {
-                if (kvp.Value == null || kvp.Value.IsDead()) { toRemove.Add(kvp.Key); continue; }
+                // Unity overloads == null to return true for destroyed objects
+                if (kvp.Value == null)
+                {
+                    // Reference is Unity-null — could be zone unload or post-death destruction.
+                    // Check bounty state to determine: if Ready/Claimed, creature was killed.
+                    var st = GetState(kvp.Key);
+                    bool wasDead = st == BountyState.Ready || st == BountyState.Claimed;
+                    toRemoveCreature.Add(new KeyValuePair<string, bool>(kvp.Key, wasDead));
+                    continue;
+                }
+                if (kvp.Value.IsDead())
+                {
+                    toRemoveCreature.Add(new KeyValuePair<string, bool>(kvp.Key, true));
+                    continue;
+                }
+                // Creature is alive and in a loaded zone — track its position on the pin
                 if (_bountyPins.TryGetValue(kvp.Key, out var pin) && pin != null)
                     pin.m_pos = kvp.Value.transform.position;
             }
 
-            foreach (var id in toRemove)
+            foreach (var kvp in toRemoveCreature)
             {
+                string id = kvp.Key;
+                bool creatureDead = kvp.Value;
                 _bountyCreatures.Remove(id);
-                if (_bountyPins.TryGetValue(id, out var pin))
+
+                if (creatureDead)
                 {
-                    if (pin != null) Minimap.instance.RemovePin(pin);
-                    _bountyPins.Remove(id);
+                    // Creature confirmed dead — remove pin
+                    if (_bountyPins.TryGetValue(id, out var pin))
+                    {
+                        if (pin != null) Minimap.instance.RemovePin(pin);
+                        _bountyPins.Remove(id);
+                    }
+                }
+                // else: creature reference is null (zone unloaded) — keep pin at stored position
+            }
+
+            // Ensure ACTIVE bounties always have a pin, even after zone unload.
+            // Do NOT re-create pins for Ready/Claimed bounties — their creature is dead.
+            foreach (var bountyId in _activeBountyIds)
+            {
+                if (_bountyPins.ContainsKey(bountyId)) continue;
+
+                var state = GetState(bountyId);
+                if (state != BountyState.Active) continue;
+                if (!_bountyLookup.TryGetValue(bountyId, out var entry)) continue;
+                if (entry.SpawnLevel <= 0) continue; // only miniboss/raid bounties have pins
+
+                // Read stored spawn position
+                if (!player.m_customData.TryGetValue(SpawnPosKeyPrefix + bountyId, out string posStr)) continue;
+                if (!TryParsePosition(posStr, out Vector3 spawnPos)) continue;
+
+                string bossName = GetBossName(bountyId);
+                string pinName = IsRaid(entry) ? "Valheim Raiders" : bossName;
+                try
+                {
+                    var pin = Minimap.instance.AddPin(spawnPos, Minimap.PinType.EventArea, pinName, false, false);
+                    pin.m_worldSize = 80f;
+                    pin.m_animate   = true;
+                    _bountyPins[bountyId] = pin;
+                }
+                catch
+                {
+                    try
+                    {
+                        var pin = Minimap.instance.AddPin(spawnPos, Minimap.PinType.Boss, pinName, true, false);
+                        _bountyPins[bountyId] = pin;
+                    }
+                    catch { }
                 }
             }
+        }
+
+        private static bool TryParsePosition(string posStr, out Vector3 result)
+        {
+            result = Vector3.zero;
+            if (string.IsNullOrEmpty(posStr)) return false;
+            var parts = posStr.Split(',');
+            if (parts.Length != 3) return false;
+            if (!float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)) return false;
+            if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y)) return false;
+            if (!float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)) return false;
+            result = new Vector3(x, y, z);
+            return true;
         }
 
         /// <summary>Finds and destroys any lingering creatures with the given bountyId ZDO tag.
@@ -727,23 +840,77 @@ namespace HaldorBounties
         private static Vector3 FindSpawnPosition(Vector3 center, float distance)
         {
             const float waterLevel = 30f;
+            // Scale variance with distance — ±10m for short range, ±50m for 700m+
+            float variance = Mathf.Max(10f, distance * 0.07f);
+
+            // Use WorldGenerator for positions beyond loaded zone range (~128m).
+            // ZoneSystem.GetGroundHeight only works in loaded zones; WorldGenerator.GetHeight
+            // uses procedural heightmap math and works at any world position.
+            bool useProcedural = distance > 128f && WorldGenerator.instance != null;
+
             for (int attempt = 0; attempt < 30; attempt++)
             {
                 float   angle = UnityEngine.Random.Range(0f, 360f);
-                float   dist  = distance + UnityEngine.Random.Range(-10f, 10f);
+                float   dist  = distance + UnityEngine.Random.Range(-variance, variance);
                 Vector3 pos   = center + Quaternion.Euler(0f, angle, 0f) * Vector3.forward * dist;
-                if (ZoneSystem.instance.GetGroundHeight(pos, out float height) && height > waterLevel)
+
+                if (useProcedural)
+                {
+                    float height = WorldGenerator.instance.GetHeight(pos.x, pos.z);
+                    if (height > waterLevel)
+                    {
+                        pos.y = height + 0.5f;
+                        return pos;
+                    }
+                }
+                else if (ZoneSystem.instance.GetGroundHeight(pos, out float height) && height > waterLevel)
                 {
                     pos.y = height + 0.5f;
                     return pos;
                 }
             }
-            float   fbAngle   = UnityEngine.Random.Range(0f, 360f);
-            Vector3 fallback  = center + Quaternion.Euler(0f, fbAngle, 0f) * Vector3.forward * distance;
-            if (ZoneSystem.instance.GetGroundHeight(fallback, out float fbH))
+
+            // Fallback — try progressively shorter distances to find land instead
+            // of spawning on the ocean surface.
+            for (int ring = 1; ring <= 5; ring++)
+            {
+                float tryDist = distance * (1f - ring * 0.15f); // 85%, 70%, 55%, 40%, 25%
+                float tryVariance = Mathf.Max(10f, tryDist * 0.1f);
+                for (int attempt = 0; attempt < 20; attempt++)
+                {
+                    float   angle = UnityEngine.Random.Range(0f, 360f);
+                    float   dist  = tryDist + UnityEngine.Random.Range(-tryVariance, tryVariance);
+                    Vector3 pos   = center + Quaternion.Euler(0f, angle, 0f) * Vector3.forward * dist;
+
+                    if (useProcedural)
+                    {
+                        float height = WorldGenerator.instance.GetHeight(pos.x, pos.z);
+                        if (height > waterLevel)
+                        {
+                            pos.y = height + 0.5f;
+                            return pos;
+                        }
+                    }
+                    else if (ZoneSystem.instance.GetGroundHeight(pos, out float height) && height > waterLevel)
+                    {
+                        pos.y = height + 0.5f;
+                        return pos;
+                    }
+                }
+            }
+
+            // Last resort — spawn near the player on dry land
+            Vector3 fallback = center;
+            if (useProcedural)
+            {
+                float fbH = WorldGenerator.instance.GetHeight(center.x, center.z);
+                fallback.y = Mathf.Max(fbH, waterLevel) + 0.5f;
+            }
+            else if (ZoneSystem.instance.GetGroundHeight(center, out float fbH))
                 fallback.y = Mathf.Max(fbH, waterLevel) + 0.5f;
             else
                 fallback.y = Mathf.Max(center.y, waterLevel + 1f);
+            HaldorBounties.Log.LogWarning("[BountyManager] FindSpawnPosition: all attempts hit ocean — spawning near player as last resort");
             return fallback;
         }
 
@@ -809,11 +976,12 @@ namespace HaldorBounties
 
             if (category == RewardCategory.Coins)
             {
-                int currentBalance = 0;
-                if (player.m_customData.TryGetValue(BankDataKey, out string balStr))
-                    int.TryParse(balStr, out currentBalance);
-                player.m_customData[BankDataKey] = (currentBalance + chosen.CoinAmount).ToString();
+                int currentBalance = ReadBankBalance(player);
+                int newBalance = currentBalance + chosen.CoinAmount;
+                WriteBankBalance(player, newBalance);
                 RefreshBankUI();
+                MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center,
+                    $"Deposited {chosen.CoinAmount:N0} coins into your bank!");
             }
             else
             {
@@ -833,11 +1001,48 @@ namespace HaldorBounties
             // H-1: Remove from active set
             _activeBountyIds.Remove(bountyId);
 
-            try { player.m_skillLevelupEffects.Create(player.transform.position, player.transform.rotation, player.transform); }
-            catch { }
+            PlaySkillLevelupEffect(player);
 
             HaldorBounties.Log.LogInfo($"[BountyManager] Claimed bounty: {bountyId}, reward: {category} ({chosen.DisplayText})");
             return true;
+        }
+
+        // ── Sound effects ──
+
+        private static void PlaySkillLevelupEffect(Player player)
+        {
+            if (player == null) return;
+            try
+            {
+                // Primary: use the player's built-in skill-levelup effects (VFX + SFX)
+                if (player.m_skillLevelupEffects != null &&
+                    player.m_skillLevelupEffects.m_effectPrefabs != null &&
+                    player.m_skillLevelupEffects.m_effectPrefabs.Length > 0)
+                {
+                    player.m_skillLevelupEffects.Create(
+                        player.transform.position, player.transform.rotation, player.transform);
+                    return;
+                }
+
+                // Fallback: instantiate the effect prefab directly from ZNetScene
+                var zns = ZNetScene.instance;
+                if (zns != null)
+                {
+                    var prefab = zns.GetPrefab("vfx_RaiseSkill");
+                    if (prefab != null)
+                    {
+                        UnityEngine.Object.Instantiate(prefab,
+                            player.transform.position, player.transform.rotation);
+                        return;
+                    }
+                }
+
+                HaldorBounties.Log.LogWarning("[BountyManager] Could not play skill levelup effect — no source found");
+            }
+            catch (Exception ex)
+            {
+                HaldorBounties.Log.LogWarning($"[BountyManager] PlaySkillLevelupEffect error: {ex.Message}");
+            }
         }
 
         // ── Bounty status effects ──
@@ -951,13 +1156,43 @@ namespace HaldorBounties
             }
         }
 
+        /// <summary>Read bank balance matching HaldorOverhaul's BankBalanceStore logic.</summary>
+        private static int ReadBankBalance(Player player)
+        {
+            if (player == null) return 0;
+            // Primary key (same as BankBalanceStore.Read checks first)
+            if (player.m_customData.TryGetValue(BankDataKey, out string balStr) && int.TryParse(balStr, out int val))
+                return val;
+            // Legacy fallback
+            if (player.m_customData.TryGetValue(BankLegacyHaldor, out balStr) && int.TryParse(balStr, out val))
+                return val;
+            return 0;
+        }
+
+        /// <summary>Write bank balance to all keys that BankBalanceStore expects.</summary>
+        private static void WriteBankBalance(Player player, int value)
+        {
+            if (player == null) return;
+            value = Mathf.Max(0, value);
+            string str = value.ToString();
+            player.m_customData[BankDataKey]        = str;
+            player.m_customData[BankLegacyHaldor]   = str;
+            player.m_customData[BankLegacyHildir]   = str;
+            player.m_customData[BankLegacyBogWitch] = str;
+        }
+
         private void RefreshBankUI()
         {
             try
             {
-                if (_getTraderUI == null || _reloadBankBalance == null) return;
-                var traderUI = _getTraderUI.Invoke(null, null);
-                if (traderUI != null) _reloadBankBalance.Invoke(traderUI, null);
+                if (_reloadBankBalance == null) return;
+
+                // Try stored instance first (set by TraderUIPatches), fall back to reflection
+                var traderUI = TraderUIPatches.TraderUIInstance;
+                if (traderUI == null && _getTraderUI != null)
+                    traderUI = _getTraderUI.Invoke(null, null);
+                if (traderUI != null)
+                    _reloadBankBalance.Invoke(traderUI, null);
             }
             catch (Exception ex)
             {

@@ -255,6 +255,7 @@ namespace HaldorBounties
             {
                 // Bow registration failed entirely — give a 1H weapon instead
                 HaldorBounties.Log.LogWarning("[NpcSetup] All bows failed, falling back to 1H weapon");
+                if (tier.Weapons1H.Length == 0) return;
                 weaponPrefab = ResolveWeapon(tier.Weapons1H[0], tier.Weapons1H);
                 if (weaponPrefab != null)
                 {

@@ -44,6 +44,9 @@ namespace HaldorBounties
         private static bool _reflectionCached;
         private static int _preUpdateTab = -1;
 
+        // Stored TraderUI instance for bank balance refresh
+        internal static object TraderUIInstance { get; private set; }
+
         private static readonly Color GoldColor = new Color(0.83f, 0.64f, 0.31f, 1f);
 
         private static void CacheReflection()
@@ -205,6 +208,9 @@ namespace HaldorBounties
             if (_craftBtnHeightField != null)
                 craftBtnHeight = (float)_craftBtnHeightField.GetValue(traderUI);
 
+            // Store TraderUI instance for bank balance refresh from BountyManager
+            TraderUIInstance = traderUI;
+
             // Build bounty panel (sprite loaded from embedded resource inside BountyPanel)
             _bountyPanel = new BountyPanel();
             _bountyPanel.Build(mainPanel.transform, colTopInset, bottomPad, font, buttonTemplate, craftBtnHeight);
@@ -301,7 +307,7 @@ namespace HaldorBounties
             static void Postfix(object __instance)
             {
                 CacheReflection();
-                if (_tabBounties == null) return;
+                if (_tabBounties == null || _activeTabField == null) return;
 
                 int activeTab = (int)_activeTabField.GetValue(__instance);
                 var btn = _tabBounties.GetComponent<Button>();

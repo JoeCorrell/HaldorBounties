@@ -27,11 +27,9 @@ namespace HaldorBounties
         // Left side — bounty list (4 sections: Available / Active / Ready / Completed)
         private RectTransform _availableContent;
         private RectTransform _activeContent;
-        private RectTransform _readyContent;
         private RectTransform _completedContent;
         private ScrollRect _availableScroll;
         private ScrollRect _activeScroll;
-        private ScrollRect _readyScroll;
         private ScrollRect _completedScroll;
         private readonly List<BountyListRow> _rows = new List<BountyListRow>();
         private TMP_Text _dayLabel;
@@ -55,6 +53,7 @@ namespace HaldorBounties
         // Reward choice UI
         private GameObject _rewardChoiceRow;
         private readonly List<Button> _rewardChoiceButtons = new List<Button>();
+        private readonly List<GameObject> _rewardHighlights = new List<GameObject>();
         private List<RewardResolver.ResolvedReward> _currentRewards;
         private Sprite _catBtnSprite;
         private Sprite _progressBarSprite;
@@ -107,12 +106,11 @@ namespace HaldorBounties
             float sectionHeaderH = 22f;
             float sepPad = 2f;
 
-            // Layout: 4 equal sections — Available 25%, Active 25%, Ready 25%, Completed 25%
-            float split3 = 0.75f; // top of Active
-            float split2 = 0.50f; // top of Ready
-            float split1 = 0.25f; // top of Completed
+            // Layout: 3 equal sections — Available 33%, Active 33%, Completed 33%
+            float split2 = 0.667f; // top of Active
+            float split1 = 0.333f; // top of Completed
 
-            // ── Available section (top 25%) ──
+            // ── Available section (top 33%) ──
             var availHdr = CreateText(leftPanel.transform, "AvailableHeader", "Available", 13f, GoldTextColor);
             availHdr.alignment = TextAlignmentOptions.MidlineLeft;
             var ahRT = availHdr.GetComponent<RectTransform>();
@@ -132,43 +130,27 @@ namespace HaldorBounties
             dayRT.anchoredPosition = new Vector2(-4f, 0f);
 
             _availableContent = BuildScrollSection(leftPanel.transform,
-                new Vector2(0f, split3), new Vector2(1f, 1f),
+                new Vector2(0f, split2), new Vector2(1f, 1f),
                 new Vector2(0f, sepPad), new Vector2(0f, -sectionHeaderH));
             _availableScroll = _availableContent.transform.parent.parent.GetComponent<ScrollRect>();
 
-            // ── Active section (25%) ──
-            CreateSectionSeparator(leftPanel.transform, split3);
+            // ── Active section (33%) ──
+            CreateSectionSeparator(leftPanel.transform, split2);
             var activeHdr = CreateText(leftPanel.transform, "ActiveHeader", "Active", 13f, ActiveColor);
             activeHdr.alignment = TextAlignmentOptions.MidlineLeft;
             var actRT = activeHdr.GetComponent<RectTransform>();
-            actRT.anchorMin = new Vector2(0f, split3);
-            actRT.anchorMax = new Vector2(1f, split3);
+            actRT.anchorMin = new Vector2(0f, split2);
+            actRT.anchorMax = new Vector2(1f, split2);
             actRT.pivot = new Vector2(0.5f, 1f);
             actRT.sizeDelta = new Vector2(-8f, sectionHeaderH);
             actRT.anchoredPosition = new Vector2(4f, -sepPad);
 
             _activeContent = BuildScrollSection(leftPanel.transform,
-                new Vector2(0f, split2), new Vector2(1f, split3),
+                new Vector2(0f, split1), new Vector2(1f, split2),
                 new Vector2(0f, sepPad), new Vector2(0f, -(sectionHeaderH + sepPad * 2)));
             _activeScroll = _activeContent.transform.parent.parent.GetComponent<ScrollRect>();
 
-            // ── Ready section (25%) — bright green for attention ──
-            CreateSectionSeparator(leftPanel.transform, split2);
-            var readyHdr = CreateText(leftPanel.transform, "ReadyHeader", "Ready", 13f, ReadyColor);
-            readyHdr.alignment = TextAlignmentOptions.MidlineLeft;
-            var rdyRT = readyHdr.GetComponent<RectTransform>();
-            rdyRT.anchorMin = new Vector2(0f, split2);
-            rdyRT.anchorMax = new Vector2(1f, split2);
-            rdyRT.pivot = new Vector2(0.5f, 1f);
-            rdyRT.sizeDelta = new Vector2(-8f, sectionHeaderH);
-            rdyRT.anchoredPosition = new Vector2(4f, -sepPad);
-
-            _readyContent = BuildScrollSection(leftPanel.transform,
-                new Vector2(0f, split1), new Vector2(1f, split2),
-                new Vector2(0f, sepPad), new Vector2(0f, -(sectionHeaderH + sepPad * 2)));
-            _readyScroll = _readyContent.transform.parent.parent.GetComponent<ScrollRect>();
-
-            // ── Completed section (bottom 25%) ──
+            // ── Completed section (bottom 33%) ──
             CreateSectionSeparator(leftPanel.transform, split1);
             var compHdr = CreateText(leftPanel.transform, "CompletedHeader", "Completed", 13f, ClaimedColor);
             compHdr.alignment = TextAlignmentOptions.MidlineLeft;
@@ -515,6 +497,7 @@ namespace HaldorBounties
             }
         }
 
+
         private const float RewardBtnSize = 62f;
         private const float RewardBtnGap = 6f;
 
@@ -533,6 +516,7 @@ namespace HaldorBounties
 
             // 4 visual-only button slots — clicks handled via raw Input in UpdatePerFrame
             _rewardChoiceButtons.Clear();
+            _rewardHighlights.Clear();
             for (int i = 0; i < 4; i++)
             {
                 float xPos = i * (RewardBtnSize + RewardBtnGap);
@@ -588,10 +572,10 @@ namespace HaldorBounties
             btnRT.sizeDelta = new Vector2(RewardBtnSize, RewardBtnSize);
             btnRT.anchoredPosition = new Vector2(xPos, 0f);
 
-            // Background — visual only, NOT a raycast target
+            // Background — needs raycastTarget for hover (PointerEnter/Exit) detection
             var bgImg = btnGO.GetComponent<Image>();
             bgImg.color = new Color(0.12f, 0.12f, 0.12f, 1f);
-            bgImg.raycastTarget = false;
+            bgImg.raycastTarget = true;
 
             // Sprite overlay (CategoryBackground texture)
             if (_catBtnSprite != null)
@@ -650,6 +634,45 @@ namespace HaldorBounties
             qtyRT.anchorMax = Vector2.one;
             qtyRT.offsetMin = new Vector2(2f, 1f);
             qtyRT.offsetMax = new Vector2(-3f, -2f);
+
+            // Selection highlight overlay — same style as action button highlight
+            var hlGO = new GameObject("selected", typeof(RectTransform), typeof(Image));
+            hlGO.transform.SetParent(btnGO.transform, false);
+            var hlRT = hlGO.GetComponent<RectTransform>();
+            hlRT.anchorMin = Vector2.zero;
+            hlRT.anchorMax = Vector2.one;
+            hlRT.offsetMin = new Vector2(-4f, -4f);
+            hlRT.offsetMax = new Vector2(4f, 4f);
+            hlGO.GetComponent<Image>().color = new Color(1f, 0.82f, 0.24f, 0.25f);
+            hlGO.GetComponent<Image>().raycastTarget = false;
+            hlGO.SetActive(false);
+            _rewardHighlights.Add(hlGO);
+
+            // Mouse hover shows/hides highlight
+            var trigger = btnGO.AddComponent<EventTrigger>();
+            int idx = index; // capture for closure
+            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            enterEntry.callback.AddListener(_ =>
+            {
+                HaldorBounties.Log.LogInfo($"[BountyPanel] PointerEnter on reward btn {idx}, interactable={btn.interactable}, focusedIdx={_focusedRewardIndex}");
+                if (btn.interactable)
+                {
+                    _focusedRewardIndex = idx;
+                    UpdateRewardButtonVisuals();
+                }
+            });
+            trigger.triggers.Add(enterEntry);
+            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            exitEntry.callback.AddListener(_ =>
+            {
+                HaldorBounties.Log.LogInfo($"[BountyPanel] PointerExit on reward btn {idx}, focusedIdx={_focusedRewardIndex}");
+                if (_focusedRewardIndex == idx)
+                {
+                    _focusedRewardIndex = -1;
+                    UpdateRewardButtonVisuals();
+                }
+            });
+            trigger.triggers.Add(exitEntry);
 
             return btn;
         }
@@ -731,33 +754,33 @@ namespace HaldorBounties
             if (_actionButtonHighlight != null && _actionButton != null)
                 _actionButtonHighlight.SetActive(_actionButton.gameObject.activeSelf && _actionButton.interactable && _focusedRewardIndex < 0);
 
-            // D-pad up/down — navigate bounty list
-            if (ZInput.GetButtonDown("JoyLStickDown") || ZInput.GetButtonDown("JoyDPadDown"))
+            // Left stick up/down — navigate bounty list
+            if (ZInput.GetButtonDown("JoyLStickDown"))
             {
                 _focusedRewardIndex = -1;
                 UpdateRewardButtonVisuals();
                 NavigateBountyList(1);
             }
-            if (ZInput.GetButtonDown("JoyLStickUp") || ZInput.GetButtonDown("JoyDPadUp"))
+            if (ZInput.GetButtonDown("JoyLStickUp"))
             {
                 _focusedRewardIndex = -1;
                 UpdateRewardButtonVisuals();
                 NavigateBountyList(-1);
             }
 
-            // D-pad left/right — navigate reward choice buttons (only when interactable)
+            // Left stick left/right — navigate reward choice buttons (only when interactable)
             bool rewardsInteractable = _rewardChoiceRow != null && _rewardChoiceRow.activeSelf
                 && _rewardChoiceButtons.Count > 0 && _rewardChoiceButtons[0] != null
                 && _rewardChoiceButtons[0].interactable;
             if (rewardsInteractable)
             {
-                if (ZInput.GetButtonDown("JoyLStickLeft") || ZInput.GetButtonDown("JoyDPadLeft"))
+                if (ZInput.GetButtonDown("JoyLStickLeft"))
                     NavigateRewardButtons(-1);
-                if (ZInput.GetButtonDown("JoyLStickRight") || ZInput.GetButtonDown("JoyDPadRight"))
+                if (ZInput.GetButtonDown("JoyLStickRight"))
                     NavigateRewardButtons(1);
             }
 
-            // A button — confirm focused reward or action button
+            // A button — accept, abandon, or choose reward
             if (ZInput.GetButtonDown("JoyButtonA"))
             {
                 if (_focusedRewardIndex >= 0 && rewardsInteractable)
@@ -766,26 +789,9 @@ namespace HaldorBounties
                     OnActionClicked();
             }
 
-            // Right stick — scroll description
-            if (_detailDescScroll != null)
-            {
-                float scrollSpeed = 2f;
-                if (ZInput.GetButton("JoyRStickDown"))
-                {
-                    _detailDescScroll.verticalNormalizedPosition -= scrollSpeed * Time.deltaTime;
-                    _detailDescScroll.verticalNormalizedPosition = Mathf.Clamp01(_detailDescScroll.verticalNormalizedPosition);
-                }
-                if (ZInput.GetButton("JoyRStickUp"))
-                {
-                    _detailDescScroll.verticalNormalizedPosition += scrollSpeed * Time.deltaTime;
-                    _detailDescScroll.verticalNormalizedPosition = Mathf.Clamp01(_detailDescScroll.verticalNormalizedPosition);
-                }
-            }
-
-            // Clear EventSystem selection only when gamepad navigates — prevents
+            // Clear EventSystem selection when navigating — prevents
             // conflicts with Unity's built-in navigation without blocking mouse clicks
-            if (ZInput.GetButtonDown("JoyLStickDown") || ZInput.GetButtonDown("JoyLStickUp") ||
-                ZInput.GetButtonDown("JoyDPadDown") || ZInput.GetButtonDown("JoyDPadUp"))
+            if (ZInput.GetButtonDown("JoyLStickDown") || ZInput.GetButtonDown("JoyLStickUp"))
             {
                 if (EventSystem.current != null)
                     EventSystem.current.SetSelectedGameObject(null);
@@ -823,8 +829,6 @@ namespace HaldorBounties
                 scroll = _availableScroll;
             else if (_activeScroll != null && rowRT.IsChildOf(_activeScroll.content))
                 scroll = _activeScroll;
-            else if (_readyScroll != null && rowRT.IsChildOf(_readyScroll.content))
-                scroll = _readyScroll;
             else if (_completedScroll != null && rowRT.IsChildOf(_completedScroll.content))
                 scroll = _completedScroll;
             if (scroll == null) return;
@@ -861,15 +865,17 @@ namespace HaldorBounties
 
         private void UpdateRewardButtonVisuals()
         {
-            for (int i = 0; i < _rewardChoiceButtons.Count; i++)
+            HaldorBounties.Log.LogInfo($"[BountyPanel] UpdateRewardButtonVisuals: focusedIdx={_focusedRewardIndex}, highlightCount={_rewardHighlights.Count}");
+            for (int i = 0; i < _rewardHighlights.Count; i++)
             {
-                var btn = _rewardChoiceButtons[i];
-                if (btn == null) continue;
-                var img = btn.GetComponent<Image>();
-                if (img != null)
-                    img.color = (i == _focusedRewardIndex)
-                        ? new Color(1f, 0.75f, 0.3f, 1f)   // gold tint — focused
-                        : Color.white;                        // normal
+                var hl = _rewardHighlights[i];
+                if (hl != null)
+                {
+                    bool active = i == _focusedRewardIndex;
+                    hl.SetActive(active);
+                    if (active)
+                        HaldorBounties.Log.LogInfo($"[BountyPanel]   -> Highlight {i} SET ACTIVE");
+                }
             }
         }
 
@@ -921,18 +927,15 @@ namespace HaldorBounties
             float rowH = 32f;
             float gap = 2f;
 
-            // Separate into 4 groups: Available, Active, Ready, Completed
+            // Separate into 3 groups: Available, Active (includes Ready), Completed
             var available = new List<BountyEntry>();
             var active = new List<BountyEntry>();
-            var ready = new List<BountyEntry>();
             var completed = new List<BountyEntry>();
 
             foreach (var b in bounties)
             {
                 var state = BountyManager.Instance.GetState(b.Id);
-                if (state == BountyState.Ready)
-                    ready.Add(b);
-                else if (state == BountyState.Active)
+                if (state == BountyState.Active || state == BountyState.Ready)
                     active.Add(b);
                 else if (state == BountyState.Claimed)
                     completed.Add(b);
@@ -959,15 +962,6 @@ namespace HaldorBounties
             _activeContent.sizeDelta = new Vector2(0f, -yOff);
 
             yOff = 0f;
-            foreach (var b in ready)
-            {
-                var row = CreateRow(b, yOff, _readyContent);
-                _rows.Add(row);
-                yOff -= (rowH + gap);
-            }
-            _readyContent.sizeDelta = new Vector2(0f, -yOff);
-
-            yOff = 0f;
             foreach (var b in completed)
             {
                 var row = CreateRow(b, yOff, _completedContent);
@@ -979,6 +973,10 @@ namespace HaldorBounties
 
         public void ForceRebuild()
         {
+            _focusedRewardIndex = -1;
+            UpdateRewardButtonVisuals();
+            if (_actionButtonHighlight != null)
+                _actionButtonHighlight.SetActive(false);
             _listBuilt = false;
             Refresh();
         }
@@ -993,15 +991,13 @@ namespace HaldorBounties
 
                 bool isInAvailable  = _availableContent != null && row.GO.transform.IsChildOf(_availableContent);
                 bool isInActive     = _activeContent != null && row.GO.transform.IsChildOf(_activeContent);
-                bool isInReady      = _readyContent != null && row.GO.transform.IsChildOf(_readyContent);
                 bool isInCompleted  = _completedContent != null && row.GO.transform.IsChildOf(_completedContent);
 
-                bool shouldBeActive    = state == BountyState.Active;
-                bool shouldBeReady     = state == BountyState.Ready;
+                bool shouldBeActive    = state == BountyState.Active || state == BountyState.Ready;
                 bool shouldBeCompleted = state == BountyState.Claimed;
-                bool shouldBeAvailable = !shouldBeActive && !shouldBeReady && !shouldBeCompleted;
+                bool shouldBeAvailable = !shouldBeActive && !shouldBeCompleted;
 
-                if (shouldBeActive != isInActive || shouldBeReady != isInReady || shouldBeCompleted != isInCompleted || shouldBeAvailable != isInAvailable)
+                if (shouldBeActive != isInActive || shouldBeCompleted != isInCompleted || shouldBeAvailable != isInAvailable)
                 {
                     ForceRebuild();
                     return;
@@ -1059,6 +1055,10 @@ namespace HaldorBounties
         private void SelectBounty(string bountyId)
         {
             _selectedBountyId = bountyId;
+            _focusedRewardIndex = -1;
+            UpdateRewardButtonVisuals();
+            if (_actionButtonHighlight != null)
+                _actionButtonHighlight.SetActive(false);
             foreach (var row in _rows)
             {
                 bool sel = row.BountyId == bountyId;
@@ -1077,8 +1077,9 @@ namespace HaldorBounties
                 return;
             }
 
-            var entry = BountyConfig.Bounties.Find(b => b.Id == _selectedBountyId);
-            if (entry == null) { ClearDetail(); return; }
+            if (BountyManager.Instance == null) { ClearDetail(); return; }
+            if (!BountyManager.Instance.TryGetEntry(_selectedBountyId, out var entry))
+            { ClearDetail(); return; }
 
             var state = BountyManager.Instance.GetState(_selectedBountyId);
 
@@ -1208,10 +1209,6 @@ namespace HaldorBounties
                 _detailGoal.color = state == BountyState.Claimed ? DimColor : Color.white;
             }
 
-            // Reset reward button focus
-            _focusedRewardIndex = -1;
-
-            // Action button
             if (_actionButton != null)
             {
                 switch (state)
@@ -1254,15 +1251,20 @@ namespace HaldorBounties
             if (_progressBarRoot != null) _progressBarRoot.SetActive(false);
             if (_actionButton != null) _actionButton.gameObject.SetActive(false);
             if (_rewardChoiceRow != null) _rewardChoiceRow.SetActive(false);
+            _focusedRewardIndex = -1;
+            UpdateRewardButtonVisuals();
+            if (_actionButtonHighlight != null)
+                _actionButtonHighlight.SetActive(false);
         }
 
         private void OnActionClicked()
         {
             if (string.IsNullOrEmpty(_selectedBountyId)) return;
 
+            if (BountyManager.Instance == null) return;
             var state = BountyManager.Instance.GetState(_selectedBountyId);
-            var entry = BountyConfig.Bounties.Find(b => b.Id == _selectedBountyId);
-            if (entry == null) { ForceRebuild(); return; }
+            if (!BountyManager.Instance.TryGetEntry(_selectedBountyId, out var entry))
+            { ForceRebuild(); return; }
 
             switch (state)
             {

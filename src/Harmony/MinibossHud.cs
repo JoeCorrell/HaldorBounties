@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
@@ -6,6 +7,10 @@ namespace HaldorBounties
 {
     public static class MinibossHud
     {
+        // Cache reflection lookups to avoid per-call overhead
+        private static readonly FieldInfo _hudsField = AccessTools.Field(typeof(EnemyHud), "m_huds");
+        private static FieldInfo _guiField; // resolved lazily from HudData type
+
         private static bool TryApplyMinibossFlags(Character character, out string bountyId)
         {
             bountyId = "";
@@ -36,7 +41,7 @@ namespace HaldorBounties
             else
             {
                 character.m_boss = true;
-                character.m_dontHideBossHud = true;
+                character.m_dontHideBossHud = false;
                 if (!string.IsNullOrEmpty(bossName))
                     character.m_name = bossName;
             }
@@ -87,14 +92,14 @@ namespace HaldorBounties
                     // If this character just became boss-tagged, rebuild stale non-boss HUD data.
                     if (wasBoss) return;
 
-                    var hudsField = AccessTools.Field(typeof(EnemyHud), "m_huds");
-                    if (hudsField == null) return;
-                    var huds = hudsField.GetValue(__instance) as System.Collections.IDictionary;
+                    if (_hudsField == null) return;
+                    var huds = _hudsField.GetValue(__instance) as System.Collections.IDictionary;
                     if (huds == null || !huds.Contains(c)) return;
 
                     var hudData = huds[c];
-                    var guiField = AccessTools.Field(hudData.GetType(), "m_gui");
-                    if (guiField?.GetValue(hudData) is GameObject gui)
+                    if (_guiField == null)
+                        _guiField = AccessTools.Field(hudData.GetType(), "m_gui");
+                    if (_guiField?.GetValue(hudData) is GameObject gui)
                         UnityEngine.Object.Destroy(gui);
 
                     huds.Remove(c);
@@ -113,17 +118,17 @@ namespace HaldorBounties
                 {
                     if (isMount || !TryApplyMinibossFlags(c, out _)) return;
 
-                    var hudsField = AccessTools.Field(typeof(EnemyHud), "m_huds");
-                    if (hudsField == null) return;
+                    if (_hudsField == null) return;
 
-                    var huds = hudsField.GetValue(__instance) as System.Collections.IDictionary;
+                    var huds = _hudsField.GetValue(__instance) as System.Collections.IDictionary;
                     if (huds == null || !huds.Contains(c)) return;
 
                     var hudData = huds[c];
-                    var guiField = AccessTools.Field(hudData.GetType(), "m_gui");
-                    if (guiField == null) return;
+                    if (_guiField == null)
+                        _guiField = AccessTools.Field(hudData.GetType(), "m_gui");
+                    if (_guiField == null) return;
 
-                    var gui = guiField.GetValue(hudData) as GameObject;
+                    var gui = _guiField.GetValue(hudData) as GameObject;
                     if (gui == null) return;
 
                     gui.transform.localScale = new Vector3(0.75f, 0.75f, 1f);

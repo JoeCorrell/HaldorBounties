@@ -44,6 +44,7 @@ namespace HaldorBounties
         private void Update()
         {
             BountyManager.Instance?.UpdateBountyPins();
+            BountyManager.Instance?.UpdateBossHudRange();
         }
 
         private void OnDestroy()
