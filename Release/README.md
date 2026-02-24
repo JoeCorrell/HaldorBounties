@@ -101,6 +101,44 @@ Right panel shows details, progress, tier, objective, reward choices, and Accept
 
 <hr/>
 
+## Configuration
+
+On first launch, the mod creates:
+
+`BepInEx/config/HaldorBounties.bounties.json`
+
+The file uses a wrapper schema:
+
+```json
+{
+  "Version": 2,
+  "Bounties": [
+    {
+      "Id": "m_deer_1",
+      "Title": "Eikthyr's Offering",
+      "Description": "Haldor craves fresh venison for his stores...",
+      "Type": "Kill",
+      "Target": "Deer",
+      "Amount": 5,
+      "Reward": 30,
+      "RequiredBoss": "",
+      "SpawnLevel": 0,
+      "Tier": "Easy",
+      "Gender": 0
+    }
+  ]
+}
+```
+
+`Type`: `Kill`<br/>
+`Tier`: `Easy`, `Medium`, `Hard`, `Miniboss`, `Raid`<br/>
+`SpawnLevel`: must be > 0 for Miniboss/Raid entries<br/>
+`Gender`: `0` random, `1` male, `2` female (used for miniboss naming/model selection)
+
+Delete the config file to regenerate defaults.
+
+<hr/>
+
 ## Console Command
 
 `BountyReset` clears bounty state/progress and despawns tracked bounty creatures for the local player profile.
@@ -135,3 +173,4 @@ Inspired by expanded trader/progression workflows in the Valheim modding ecosyst
 [![Discord](https://img.shields.io/badge/Discord-@profmags-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com)
 
 </div>
+

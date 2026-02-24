@@ -12,7 +12,7 @@ namespace HaldorBounties
     {
         public const string PluginGUID = "com.haldor.bounties";
         public const string PluginName = "Haldor Bounties";
-        public const string PluginVersion = "1.0.0";
+        public const string PluginVersion = "0.0.1";
 
         private static Harmony _harmony;
         internal static ManualLogSource Log;
